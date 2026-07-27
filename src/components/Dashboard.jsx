@@ -179,8 +179,7 @@ export default function Dashboard() {
         {/* Left Column: Tank & Motor */}
         <div className="card" style={{
           boxShadow: levelPct <= 20 ? 'inset 0 0 50px rgba(255, 75, 75, 0.1)' : levelPct >= 95 ? 'inset 0 0 50px rgba(0, 230, 118, 0.1)' : 'none',
-          transition: 'box-shadow 0.5s ease',
-          opacity: systemOnline ? 1 : 0.6 // Dim when offline
+          transition: 'box-shadow 0.5s ease'
         }}>
           <h2>Live Tank Status</h2>
           
