@@ -197,8 +197,8 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="motor-control" style={{flexDirection: 'column', gap: '1rem', alignItems: 'flex-start'}}>
-            <div style={{display: 'flex', justifyContent: 'space-between', width: '100%'}}>
+          <div className="motor-control" style={{flexDirection: 'column', gap: '1.5rem', alignItems: 'flex-start'}}>
+            <div style={{display: 'flex', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: '1rem'}}>
               <div className="motor-info">
                 <h3>Water Pump</h3>
                 <p>Mode: {motorMode.charAt(0).toUpperCase() + motorMode.slice(1)}</p>
@@ -217,7 +217,6 @@ export default function Dashboard() {
                     cursor: 'pointer',
                     fontWeight: '600'
                   }}
-                  disabled={!systemOnline}
                 >
                   Manual
                 </button>
@@ -233,14 +232,13 @@ export default function Dashboard() {
                     cursor: 'pointer',
                     fontWeight: '600'
                   }}
-                  disabled={!systemOnline}
                 >
                   Auto
                 </button>
               </div>
             </div>
             
-            <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginTop: '0.5rem'}}>
+            <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: '1rem'}}>
               <div className={`motor-status ${motorOn ? 'on' : 'off'}`}>
                 <Power size={16} />
                 {motorOn ? 'RUNNING' : 'STOPPED'}
@@ -248,12 +246,12 @@ export default function Dashboard() {
               
               <div style={{display: 'flex', alignItems: 'center', gap: '1rem'}}>
                 {motorMode === 'auto' && <span style={{fontSize: '0.85rem', color: 'var(--text-muted)'}}>(Managed by sensors)</span>}
-                <label className="switch" style={{opacity: (motorMode === 'auto' || !systemOnline) ? 0.5 : 1}}>
+                <label className="switch" style={{opacity: motorMode === 'auto' ? 0.5 : 1}}>
                   <input 
                     type="checkbox" 
                     checked={motorOn} 
                     onChange={handleMotorToggle}
-                    disabled={motorMode === 'auto' || !systemOnline}
+                    disabled={motorMode === 'auto'}
                   />
                   <span className="slider"></span>
                 </label>

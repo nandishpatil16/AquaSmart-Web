@@ -149,8 +149,27 @@ export default function Analytics() {
         </div>
         
         {chartData.length === 0 ? (
-          <div style={{height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)'}}>
-            Waiting for ESP32 to log 15-minute snapshots...
+          <div style={{height: '100%', position: 'relative'}}>
+            <div style={{position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10, background: 'rgba(0,0,0,0.4)', borderRadius: '12px'}}>
+              <div style={{background: 'var(--card-bg)', padding: '1rem 2rem', borderRadius: '30px', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontWeight: 'bold'}}>
+                Waiting for ESP32 to log 15-minute snapshots...
+              </div>
+            </div>
+            {/* Dummy Mock Graph for Aesthetics */}
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={[{timeLabel: '12:00', level: 0}, {timeLabel: '01:00', level: 200}, {timeLabel: '02:00', level: 400}, {timeLabel: '03:00', level: 300}, {timeLabel: '04:00', level: 600}]} margin={{ top: 10, right: 10, left: -20, bottom: 40 }}>
+                <defs>
+                  <linearGradient id="colorLevelMock" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#888" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#888" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" vertical={false} />
+                <XAxis dataKey="timeLabel" stroke="var(--text-muted)" fontSize={12} />
+                <YAxis stroke="var(--text-muted)" fontSize={12} />
+                <Area type="monotone" dataKey="level" stroke="#888" strokeWidth={3} fillOpacity={1} fill="url(#colorLevelMock)" />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
