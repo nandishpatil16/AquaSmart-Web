@@ -239,9 +239,9 @@ export default function Dashboard() {
             </div>
             
             <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: '1rem'}}>
-              <div className={`motor-status ${motorOn ? 'on' : 'off'}`}>
+              <div className={`motor-status ${(systemOnline && motorOn) ? 'on' : 'off'}`}>
                 <Power size={16} />
-                {motorOn ? 'RUNNING' : 'STOPPED'}
+                {(systemOnline && motorOn) ? 'RUNNING' : 'STOPPED'}
               </div>
               
               <div style={{display: 'flex', alignItems: 'center', gap: '1rem'}}>
