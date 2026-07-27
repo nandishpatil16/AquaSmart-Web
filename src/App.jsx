@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Droplets, LayoutDashboard, LineChart, Settings, Bell, Sun, Moon } from 'lucide-react';
+import { Droplets, LayoutDashboard, LineChart, Settings, Sun, Moon, History } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Analytics from './components/Analytics';
 import SettingsView from './components/SettingsView';
+import MotorHistory from './components/MotorHistory';
 
 function Sidebar({ theme, toggleTheme }) {
   const location = useLocation();
@@ -20,6 +21,9 @@ function Sidebar({ theme, toggleTheme }) {
         </Link>
         <Link to="/analytics" className={`nav-link ${location.pathname === '/analytics' ? 'active' : ''}`}>
           <LineChart size={20} /> Analytics
+        </Link>
+        <Link to="/history" className={`nav-link ${location.pathname === '/history' ? 'active' : ''}`}>
+          <History size={20} /> Motor History
         </Link>
         <Link to="/settings" className={`nav-link ${location.pathname === '/settings' ? 'active' : ''}`}>
           <Settings size={20} /> Settings
@@ -54,6 +58,7 @@ function App() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/analytics" element={<Analytics />} />
+            <Route path="/history" element={<MotorHistory />} />
             <Route path="/settings" element={<SettingsView />} />
           </Routes>
         </main>

@@ -21,7 +21,19 @@ export default function Dashboard() {
 
   const addAlert = (type, title, message) => {
     setAlerts(prev => [{ id: Date.now(), type, title, message, time: new Date().toLocaleTimeString() }, ...prev].slice(0, 5));
+    
+    // Trigger mobile/desktop push notification
+    if (Notification.permission === 'granted') {
+      new Notification(title, { body: message, icon: '/favicon.svg' });
+    }
   };
+
+  // Request Notification Permissions on load
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+      Notification.requestPermission();
+    }
+  }, []);
 
   // Check System Online Status
   useEffect(() => {
@@ -261,10 +273,10 @@ export default function Dashboard() {
             {alerts.map(alert => (
               <div key={alert.id} className={`alert-item ${alert.type}`}>
                 <div className="icon">{getAlertIcon(alert.type)}</div>
-                <div className="alert-text">
-                  <div style={{display:'flex', justifyContent: 'space-between'}}>
-                    <h4>{alert.title}</h4>
-                    <span style={{fontSize: '0.75rem', color: 'var(--text-muted)'}}>{alert.time}</span>
+                <div className="alert-text" style={{width: '100%'}}>
+                  <div style={{display:'flex', justifyContent: 'space-between', gap: '1rem'}}>
+                    <h4 style={{margin: 0}}>{alert.title}</h4>
+                    <span style={{fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap'}}>{alert.time}</span>
                   </div>
                   <p>{alert.message}</p>
                 </div>
