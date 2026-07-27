@@ -193,7 +193,7 @@ body {
 
 .card h2 {
   font-size: 1.2rem;
-  color: var(--text-main);
+  color: var(--text-main) !important;
   margin-bottom: 1.5rem;
 }
 
@@ -265,7 +265,7 @@ body {
 .tank-liters {
   font-size: 1.1rem;
   opacity: 0.8;
-  color: var(--tank-text);
+  color: var(--text-main) !important;
 }
 
 /* Motor Controls */

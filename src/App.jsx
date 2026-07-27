@@ -32,7 +32,7 @@ function Sidebar({ theme, toggleTheme }) {
       
       <div style={{marginTop: 'auto'}}>
         <button onClick={toggleTheme} className="nav-link" style={{width: '100%', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left'}}>
-          {theme === 'dark' ? <><Sun size={20} /> Light Mode</> : <><Moon size={20} /> Dark Mode</>}
+          {theme === 'dark' ? <><Moon size={20} /> Dark Mode</> : <><Sun size={20} /> Light Mode</>}
         </button>
       </div>
     </div>

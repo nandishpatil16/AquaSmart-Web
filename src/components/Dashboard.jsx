@@ -63,10 +63,12 @@ export default function Dashboard() {
 
   // Alert logic for Motor
   useEffect(() => {
-    if (motorOn && !prevMotorRef.current) addAlert('warning', 'Pump Started', `Motor turned ON (${motorMode} mode).`);
-    else if (!motorOn && prevMotorRef.current) addAlert('success', 'Pump Stopped', `Motor turned OFF (${motorMode} mode).`);
+    if (systemOnline) {
+      if (motorOn && !prevMotorRef.current) addAlert('warning', 'Pump Started', `Motor turned ON (${motorMode} mode).`);
+      else if (!motorOn && prevMotorRef.current) addAlert('success', 'Pump Stopped', `Motor turned OFF (${motorMode} mode).`);
+    }
     prevMotorRef.current = motorOn;
-  }, [motorOn, motorMode]);
+  }, [motorOn, motorMode, systemOnline]);
 
   const prevHeartbeatRef = useRef(null);
 
@@ -112,14 +114,15 @@ export default function Dashboard() {
     }
   }, [motorOn]); 
 
-  // Handle Auto Mode Logic (Works for both Firebase & Fallback)
+  // Handle Safety and Auto Mode Logic (Works for both Firebase & Fallback)
   useEffect(() => {
-    if (motorMode === 'auto') {
-      if (levelPct <= 20 && !motorOn) {
-        handleMotorToggle({ target: { checked: true } }, true); // Auto start pump
-      } else if (levelPct >= 95 && motorOn) {
-        handleMotorToggle({ target: { checked: false } }, true); // Auto stop pump
-      }
+    // Universal Safety Stop: Always stop at 95% regardless of mode
+    if (levelPct >= 95 && motorOn) {
+      handleMotorToggle({ target: { checked: false } }, true); // Force stop pump
+    } 
+    // Auto Mode Start: Only start at 20% if in Auto Mode
+    else if (motorMode === 'auto' && levelPct <= 20 && !motorOn) {
+      handleMotorToggle({ target: { checked: true } }, true); // Auto start pump
     }
   }, [levelPct, motorMode, motorOn]);
 
