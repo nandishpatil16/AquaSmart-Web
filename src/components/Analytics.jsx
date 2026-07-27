@@ -124,8 +124,8 @@ export default function Analytics() {
       </div>
 
       <div className="card" style={{ height: '400px' }}>
-        <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'center'}}>
-          <h2>Tank Level Trend</h2>
+        <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'center', flexWrap: 'wrap', gap: '1rem'}}>
+          <h2 style={{margin: 0}}>Tank Level Trend</h2>
           <div style={{display: 'flex', gap: '0.5rem', background: 'var(--bg-color)', padding: '0.3rem', borderRadius: '8px', border: '1px solid var(--border-color)'}}>
             {['Daily', 'Weekly', 'Monthly'].map(tf => (
               <button 

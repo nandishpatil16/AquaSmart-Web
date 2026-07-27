@@ -245,16 +245,19 @@ export default function Dashboard() {
               </div>
               
               <div style={{display: 'flex', alignItems: 'center', gap: '1rem'}}>
-                {motorMode === 'auto' && <span style={{fontSize: '0.85rem', color: 'var(--text-muted)'}}>(Managed by sensors)</span>}
-                <label className="switch" style={{opacity: (motorMode === 'auto' || !systemOnline) ? 0.5 : 1}}>
-                  <input 
-                    type="checkbox" 
-                    checked={systemOnline ? motorOn : false} 
-                    onChange={handleMotorToggle}
-                    disabled={motorMode === 'auto' || !systemOnline}
-                  />
-                  <span className="slider"></span>
-                </label>
+                {motorMode === 'auto' ? (
+                  <span style={{fontSize: '0.95rem', color: 'var(--primary-light)', fontWeight: 'bold'}}>Controlled by Sensors</span>
+                ) : (
+                  <label className="switch" style={{opacity: !systemOnline ? 0.5 : 1}}>
+                    <input 
+                      type="checkbox" 
+                      checked={systemOnline ? motorOn : false} 
+                      onChange={handleMotorToggle}
+                      disabled={!systemOnline}
+                    />
+                    <span className="slider"></span>
+                  </label>
+                )}
               </div>
             </div>
           </div>
