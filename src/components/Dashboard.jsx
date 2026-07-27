@@ -177,15 +177,10 @@ export default function Dashboard() {
       <div className="dashboard-grid">
         
         {/* Left Column: Tank & Motor */}
-        <div className="card" style={{
-          boxShadow: levelPct <= 20 ? 'inset 0 0 50px rgba(255, 75, 75, 0.1)' : levelPct >= 95 ? 'inset 0 0 50px rgba(0, 230, 118, 0.1)' : 'none',
-          transition: 'box-shadow 0.5s ease'
-        }}>
+        <div className="card">
           <h2>Live Tank Status</h2>
           
-          <div className="tank-visualizer" style={{
-            boxShadow: levelPct <= 20 ? '0 0 40px rgba(255, 75, 75, 0.2)' : levelPct >= 95 ? '0 0 40px rgba(0, 230, 118, 0.2)' : '0 0 40px rgba(0, 112, 243, 0.1)'
-          }}>
+          <div className="tank-visualizer">
             <div 
               className="water-wave" 
               style={{ transform: `translateY(${100 - levelPct}%)` }}
