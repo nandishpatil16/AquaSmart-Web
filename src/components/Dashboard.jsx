@@ -56,6 +56,8 @@ export default function Dashboard() {
     prevMotorRef.current = motorOn;
   }, [motorOn, motorMode]);
 
+  const prevHeartbeatRef = useRef(null);
+
   // Real Firebase Integration or Fallback Simulation
   useEffect(() => {
     if (isFirebaseConfigured) {
@@ -68,7 +70,13 @@ export default function Dashboard() {
           setLevelLiters(data.level_liters || 0);
           setMotorOn(data.motor_state || false);
           setMotorMode(data.motor_mode || 'manual');
-          if (data.heartbeat) setLastUpdate(data.heartbeat); // Use ESP32 heartbeat
+          
+          // ESP32 sends millis() which is a small number. 
+          // We must check if the heartbeat changed to know it's alive.
+          if (data.heartbeat && data.heartbeat !== prevHeartbeatRef.current) {
+            prevHeartbeatRef.current = data.heartbeat;
+            setLastUpdate(Date.now()); // Set current web time!
+          }
         }
       });
       return () => unsubscribe();
