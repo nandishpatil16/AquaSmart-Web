@@ -3,8 +3,8 @@ import { Droplets, Power, Activity, ShieldAlert, CheckCircle2, TrendingUp, Trend
 import { database, ref, onValue, set, isFirebaseConfigured } from '../firebase'; 
 
 export default function Dashboard() {
-  const [levelPct, setLevelPct] = useState(72);
-  const [levelLiters, setLevelLiters] = useState(720);
+  const [levelPct, setLevelPct] = useState(0);
+  const [levelLiters, setLevelLiters] = useState(0);
   const [motorOn, setMotorOn] = useState(false);
   const [motorMode, setMotorMode] = useState('manual');
   const [trend, setTrend] = useState('Stable');
@@ -16,7 +16,7 @@ export default function Dashboard() {
     { id: 1, type: 'success', title: 'System Initialized', message: 'Dashboard is ready.', time: new Date().toLocaleTimeString() }
   ]);
 
-  const prevLevelRef = useRef(72);
+  const prevLevelRef = useRef(0);
   const prevMotorRef = useRef(false);
 
   const addAlert = (type, title, message) => {
