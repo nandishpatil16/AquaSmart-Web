@@ -1,9 +1,35 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { database, ref, onValue, set, isFirebaseConfigured } from '../firebase';
 
 export default function SettingsView() {
   const [saved, setSaved] = useState(false);
+  const [capacity, setCapacity] = useState(500);
+  const [height, setHeight] = useState(110);
+  const [lowAlert, setLowAlert] = useState(20);
+
+  useEffect(() => {
+    if (isFirebaseConfigured) {
+      const settingsRef = ref(database, 'settings');
+      const unsubscribe = onValue(settingsRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          if (data.capacity) setCapacity(data.capacity);
+          if (data.height) setHeight(data.height);
+          if (data.lowAlert) setLowAlert(data.lowAlert);
+        }
+      });
+      return () => unsubscribe();
+    }
+  }, []);
 
   const handleSave = () => {
+    if (isFirebaseConfigured) {
+      set(ref(database, 'settings'), {
+        capacity: Number(capacity),
+        height: Number(height),
+        lowAlert: Number(lowAlert)
+      });
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 3000); // hide after 3s
   };
@@ -23,7 +49,8 @@ export default function SettingsView() {
             <label style={{display:'block', marginBottom: '0.5rem', color: 'var(--text-muted)'}}>Tank Capacity (Liters)</label>
             <input 
               type="number" 
-              defaultValue="1000" 
+              value={capacity}
+              onChange={(e) => setCapacity(e.target.value)}
               style={{width: '100%', padding: '0.8rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-color)', color: 'var(--text-main)'}}
             />
           </div>
@@ -32,7 +59,8 @@ export default function SettingsView() {
             <label style={{display:'block', marginBottom: '0.5rem', color: 'var(--text-muted)'}}>Tank Height (cm)</label>
             <input 
               type="number" 
-              defaultValue="150" 
+              value={height}
+              onChange={(e) => setHeight(e.target.value)}
               style={{width: '100%', padding: '0.8rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-color)', color: 'var(--text-main)'}}
             />
           </div>
@@ -41,7 +69,8 @@ export default function SettingsView() {
             <label style={{display:'block', marginBottom: '0.5rem', color: 'var(--text-muted)'}}>Low Water Alert Threshold (%)</label>
             <input 
               type="number" 
-              defaultValue="20" 
+              value={lowAlert}
+              onChange={(e) => setLowAlert(e.target.value)}
               style={{width: '100%', padding: '0.8rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-color)', color: 'var(--text-main)'}}
             />
           </div>

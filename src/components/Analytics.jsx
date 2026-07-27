@@ -2,19 +2,19 @@ import React, { useState } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 const dailyData = [
-  { name: '12 AM', usage: 10 }, { name: '4 AM', usage: 5 }, { name: '8 AM', usage: 45 },
-  { name: '12 PM', usage: 60 }, { name: '4 PM', usage: 40 }, { name: '8 PM', usage: 85 },
+  { name: '12 AM', usage: 0 }, { name: '4 AM', usage: 0 }, { name: '8 AM', usage: 0 },
+  { name: '12 PM', usage: 0 }, { name: '4 PM', usage: 0 }, { name: '8 PM', usage: 0 },
 ];
 
 const weeklyData = [
-  { name: 'Mon', usage: 120 }, { name: 'Tue', usage: 150 }, { name: 'Wed', usage: 80 },
-  { name: 'Thu', usage: 220 }, { name: 'Fri', usage: 190 }, { name: 'Sat', usage: 310 },
-  { name: 'Sun', usage: 280 },
+  { name: 'Mon', usage: 0 }, { name: 'Tue', usage: 0 }, { name: 'Wed', usage: 0 },
+  { name: 'Thu', usage: 0 }, { name: 'Fri', usage: 0 }, { name: 'Sat', usage: 0 },
+  { name: 'Sun', usage: 0 },
 ];
 
 const monthlyData = [
-  { name: 'Week 1', usage: 900 }, { name: 'Week 2', usage: 1100 },
-  { name: 'Week 3', usage: 850 }, { name: 'Week 4', usage: 1250 },
+  { name: 'Week 1', usage: 0 }, { name: 'Week 2', usage: 0 },
+  { name: 'Week 3', usage: 0 }, { name: 'Week 4', usage: 0 },
 ];
 
 export default function Analytics() {

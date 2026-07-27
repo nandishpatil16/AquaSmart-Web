@@ -10,8 +10,8 @@ export default function Dashboard() {
   const [trend, setTrend] = useState('Stable');
   
   // Systematic States
-  const [lastUpdate, setLastUpdate] = useState(Date.now());
-  const [systemOnline, setSystemOnline] = useState(true);
+  const [lastUpdate, setLastUpdate] = useState(0); // Start at 0 so it's initially offline
+  const [systemOnline, setSystemOnline] = useState(false);
   const [alerts, setAlerts] = useState([
     { id: 1, type: 'success', title: 'System Initialized', message: 'Dashboard is ready.', time: new Date().toLocaleTimeString() }
   ]);
@@ -68,7 +68,7 @@ export default function Dashboard() {
           setLevelLiters(data.level_liters || 0);
           setMotorOn(data.motor_state || false);
           setMotorMode(data.motor_mode || 'manual');
-          setLastUpdate(Date.now()); // Update timestamp systematically
+          if (data.heartbeat) setLastUpdate(data.heartbeat); // Use ESP32 heartbeat
         }
       });
       return () => unsubscribe();
