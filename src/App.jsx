@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Droplets, LayoutDashboard, LineChart, Settings, Sun, Moon, History } from 'lucide-react';
+import { Droplets, LayoutDashboard, LineChart, Settings, History } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Analytics from './components/Analytics';
 import SettingsView from './components/SettingsView';
 import MotorHistory from './components/MotorHistory';
 
-function Sidebar({ theme, toggleTheme }) {
+function Sidebar() {
   const location = useLocation();
 
   return (
@@ -17,23 +17,17 @@ function Sidebar({ theme, toggleTheme }) {
       </div>
       <div className="nav-links">
         <Link to="/" className={`nav-link ${location.pathname === '/' ? 'active' : ''}`}>
-          <LayoutDashboard size={20} /> Dashboard
+          <LayoutDashboard size={20} /> <span className="nav-text">Dashboard</span>
         </Link>
         <Link to="/analytics" className={`nav-link ${location.pathname === '/analytics' ? 'active' : ''}`}>
-          <LineChart size={20} /> Analytics
+          <LineChart size={20} /> <span className="nav-text">Analytics</span>
         </Link>
         <Link to="/history" className={`nav-link ${location.pathname === '/history' ? 'active' : ''}`}>
-          <History size={20} /> Motor History
+          <History size={20} /> <span className="nav-text">History</span>
         </Link>
         <Link to="/settings" className={`nav-link ${location.pathname === '/settings' ? 'active' : ''}`}>
-          <Settings size={20} /> Settings
+          <Settings size={20} /> <span className="nav-text">Settings</span>
         </Link>
-      </div>
-      
-      <div style={{marginTop: 'auto'}}>
-        <button onClick={toggleTheme} className="nav-link" style={{width: '100%', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left'}}>
-          {theme === 'dark' ? <><Moon size={20} /> Dark Mode</> : <><Sun size={20} /> Light Mode</>}
-        </button>
       </div>
     </div>
   );
@@ -52,14 +46,18 @@ function App() {
 
   return (
     <BrowserRouter>
+      <div className="mobile-header">
+        <Droplets size={24} />
+        AquaSmart
+      </div>
       <div className="app-container">
-        <Sidebar theme={theme} toggleTheme={toggleTheme} />
+        <Sidebar />
         <main className="main-content">
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/history" element={<MotorHistory />} />
-            <Route path="/settings" element={<SettingsView />} />
+            <Route path="/settings" element={<SettingsView theme={theme} toggleTheme={toggleTheme} />} />
           </Routes>
         </main>
       </div>

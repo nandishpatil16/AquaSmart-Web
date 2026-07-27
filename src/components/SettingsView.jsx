@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { database, ref, onValue, set, isFirebaseConfigured } from '../firebase';
+import { Sun, Moon } from 'lucide-react';
 
-export default function SettingsView() {
+export default function SettingsView({ theme, toggleTheme }) {
   const [saved, setSaved] = useState(false);
   const [capacity, setCapacity] = useState(500);
   const [height, setHeight] = useState(110);
@@ -42,9 +43,23 @@ export default function SettingsView() {
       </div>
 
       <div className="card" style={{maxWidth: '600px'}}>
-        <h2>Tank Configuration</h2>
+        <h2>System Configuration</h2>
         
         <div style={{display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '1.5rem'}}>
+          
+          {/* Theme Toggle */}
+          <div>
+            <label style={{display:'block', marginBottom: '0.5rem', color: 'var(--text-muted)'}}>Theme Preference</label>
+            <button onClick={toggleTheme} style={{
+              width: '100%', padding: '0.8rem', borderRadius: '8px', 
+              border: '1px solid var(--border-color)', background: 'var(--bg-color)', 
+              color: 'var(--text-main)', cursor: 'pointer', textAlign: 'left',
+              display: 'flex', alignItems: 'center', gap: '0.5rem'
+            }}>
+              {theme === 'dark' ? <><Moon size={20} /> Dark Mode</> : <><Sun size={20} /> Light Mode</>}
+            </button>
+          </div>
+
           <div>
             <label style={{display:'block', marginBottom: '0.5rem', color: 'var(--text-muted)'}}>Tank Capacity (Liters)</label>
             <input 
