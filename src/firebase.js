@@ -4,7 +4,7 @@ import { getDatabase, ref, onValue, set, update } from "firebase/database";
 const firebaseConfig = {
   apiKey: "AIzaSyA0Ex9aIRO0spkeYghA_RzdhSmiSKfdbpk",
   authDomain: "aquasmart-3d0cb.firebaseapp.com",
-  databaseURL: "https://aquasmart-3d0cb-default-rtdb.firebaseio.com",
+  databaseURL: "https://aquasmart-3d0cb-default-rtdb.asia-southeast1.firebasedatabase.app",
   projectId: "aquasmart-3d0cb",
   storageBucket: "aquasmart-3d0cb.firebasestorage.app",
   messagingSenderId: "536108658459",
