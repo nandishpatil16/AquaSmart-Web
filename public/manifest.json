@@ -1,11 +1,11 @@
 {
   "short_name": "AquaSmart",
-  "name": "AquaSmart Tank Monitor",
+  "name": "AquaSmart",
   "icons": [
     {
-      "src": "/favicon.svg",
+      "src": "/maskable_icon.svg",
       "type": "image/svg+xml",
-      "sizes": "192x192 512x512",
+      "sizes": "512x512",
       "purpose": "any maskable"
     }
   ],
