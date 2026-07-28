@@ -1,10 +1,16 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Droplets, LayoutDashboard, LineChart, Settings, History } from 'lucide-react';
+import { LayoutDashboard, LineChart, Settings, History } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Analytics from './components/Analytics';
 import SettingsView from './components/SettingsView';
 import MotorHistory from './components/MotorHistory';
+
+const AquaLogo = ({ size = 24 }) => (
+  <svg width={size} height={size} viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="12" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M25 80 L50 20 L75 80 M35 56 L65 56" />
+  </svg>
+);
 
 function Sidebar() {
   const location = useLocation();
@@ -12,7 +18,7 @@ function Sidebar() {
   return (
     <div className="sidebar">
       <div className="brand">
-        <Droplets size={28} />
+        <AquaLogo size={28} />
         AquaSmart
       </div>
       <div className="nav-links">
@@ -47,7 +53,7 @@ function App() {
   return (
     <BrowserRouter>
       <div className="mobile-header">
-        <Droplets size={24} />
+        <AquaLogo size={24} />
         AquaSmart
       </div>
       <div className="app-container">
