@@ -23,7 +23,7 @@ const CustomSplashScreen = ({ onComplete }) => {
     <div style={{
       position: 'fixed',
       top: 0, left: 0, right: 0, bottom: 0,
-      backgroundColor: '#ffffff',
+      backgroundColor: 'var(--bg-primary)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
@@ -33,7 +33,7 @@ const CustomSplashScreen = ({ onComplete }) => {
     }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
         <Droplets color="#0070f3" size={80} strokeWidth={2} />
-        <h1 style={{ color: '#0070f3', margin: 0, fontSize: '2rem', fontWeight: 'bold', fontFamily: 'system-ui, sans-serif' }}>AquaSmart</h1>
+        <h1 style={{ color: 'var(--text-primary)', margin: 0, fontSize: '2rem', fontWeight: 'bold', fontFamily: 'system-ui, sans-serif' }}>AquaSmart</h1>
       </div>
     </div>
   );
@@ -67,11 +67,14 @@ function Sidebar() {
 }
 
 function App() {
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem('theme') || 'dark';
+  });
   const [showSplash, setShowSplash] = useState(true);
   
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
   }, [theme]);
 
   const toggleTheme = () => {
