@@ -3,8 +3,9 @@ import { Droplets, Power, Activity, ShieldAlert, CheckCircle2, TrendingUp, Trend
 import { database, ref, onValue, set, isFirebaseConfigured } from '../firebase'; 
 
 // Global state to persist online status across page navigations
-let globalLastUpdate = Date.now();
-let globalSystemOnline = true;
+let globalLastUpdate = 0;
+let globalSystemOnline = false;
+let globalIsConnecting = true;
 let isFirstLoad = true;
 
 export default function Dashboard() {
@@ -17,6 +18,7 @@ export default function Dashboard() {
   // Systematic States
   const [lastUpdate, setLastUpdate] = useState(globalLastUpdate); 
   const [systemOnline, setSystemOnline] = useState(globalSystemOnline);
+  const [isConnecting, setIsConnecting] = useState(globalIsConnecting);
   const [alerts, setAlerts] = useState([
     { id: 1, type: 'success', title: 'System Initialized', message: 'Dashboard is ready.', time: new Date().toLocaleTimeString() }
   ]);
@@ -27,13 +29,23 @@ export default function Dashboard() {
   const addAlert = (type, title, message) => {
     setAlerts(prev => [{ id: Date.now(), type, title, message, time: new Date().toLocaleTimeString() }, ...prev].slice(0, 5));
     
-    // Trigger mobile/desktop push notification (wrapped in try-catch to prevent mobile Safari/Chrome crash!)
+    // Trigger mobile/desktop push notification (works for Android PWA Service Workers!)
     try {
       if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification(title, { body: message, icon: '/favicon.svg' });
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistration().then(reg => {
+            if (reg) {
+              reg.showNotification(title, { body: message, icon: '/favicon.svg' });
+            } else {
+              new Notification(title, { body: message, icon: '/favicon.svg' });
+            }
+          });
+        } else {
+          new Notification(title, { body: message, icon: '/favicon.svg' });
+        }
       }
     } catch (e) {
-      console.warn("Mobile notifications blocked or unsupported in this context", e);
+      console.warn("Mobile notifications blocked or unsupported", e);
     }
   };
 
@@ -46,8 +58,18 @@ export default function Dashboard() {
 
   // Check System Online Status
   useEffect(() => {
+    // 5 second grace period when the app opens to check if the ESP32 is actually online
+    if (globalIsConnecting) {
+      setTimeout(() => {
+        globalIsConnecting = false;
+        setIsConnecting(false);
+      }, 5000); 
+    }
+
     const checker = setInterval(() => {
-      const isOnline = (Date.now() - globalLastUpdate) < 15000; // 15 seconds without update = offline
+      if (globalIsConnecting) return; // Wait during the connection grace period
+      
+      const isOnline = globalLastUpdate > 0 && (Date.now() - globalLastUpdate) < 15000;
       if (systemOnline !== isOnline) {
         setSystemOnline(isOnline);
         globalSystemOnline = isOnline;
@@ -103,6 +125,14 @@ export default function Dashboard() {
             const now = Date.now();
             setLastUpdate(now); 
             globalLastUpdate = now;
+            
+            // Instantly snap to "Online" the moment a heartbeat arrives!
+            if (globalIsConnecting) {
+              globalIsConnecting = false;
+              setIsConnecting(false);
+              setSystemOnline(true);
+              globalSystemOnline = true;
+            }
           }
         }
       });
@@ -189,8 +219,8 @@ export default function Dashboard() {
         </div>
         <div className="stat-box">
           <h4>System Status</h4>
-          <div className="val" style={{display:'flex', alignItems:'center', gap:'0.5rem', color: systemOnline ? 'var(--accent-green)' : 'var(--accent-red)'}}>
-            {systemOnline ? 'Online' : <><WifiOff size={24}/> Offline</>}
+          <div className="val" style={{display:'flex', alignItems:'center', gap:'0.5rem', color: isConnecting ? 'var(--text-muted)' : (systemOnline ? 'var(--accent-green)' : 'var(--accent-red)')}}>
+            {isConnecting ? 'Connecting...' : (systemOnline ? 'Online' : <><WifiOff size={24}/> Offline</>)}
           </div>
         </div>
       </div>
@@ -254,9 +284,9 @@ export default function Dashboard() {
             </div>
             
             <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: '1rem'}}>
-              <div className={`motor-status ${(systemOnline && motorOn) ? 'on' : 'off'}`}>
+              <div className={`motor-status ${(systemOnline && motorOn && !isConnecting) ? 'on' : 'off'}`}>
                 <Power size={16} />
-                {(systemOnline && motorOn) ? 'RUNNING' : 'STOPPED'}
+                {(systemOnline && motorOn && !isConnecting) ? 'RUNNING' : 'STOPPED'}
               </div>
               
               <div style={{display: 'flex', alignItems: 'center', gap: '1rem'}}>
@@ -266,9 +296,9 @@ export default function Dashboard() {
                   <label className="switch" style={{opacity: !systemOnline ? 0.5 : 1}}>
                     <input 
                       type="checkbox" 
-                      checked={systemOnline ? motorOn : false} 
+                      checked={(systemOnline && !isConnecting) ? motorOn : false} 
                       onChange={handleMotorToggle}
-                      disabled={!systemOnline}
+                      disabled={!systemOnline || isConnecting}
                     />
                     <span className="slider"></span>
                   </label>
