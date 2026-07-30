@@ -119,14 +119,18 @@ export default function Dashboard() {
           setMotorMode(data.motor_mode || 'manual');
           
           // ESP32 sends millis() which is a small number. 
-          // We must check if the heartbeat changed to know it's alive.
-          if (data.heartbeat && data.heartbeat !== prevHeartbeatRef.current) {
+          // We must check if the heartbeat actually CHANGES to know it's alive.
+          if (prevHeartbeatRef.current === null) {
+            // First load: just memorize the old heartbeat without assuming it's online
+            prevHeartbeatRef.current = data.heartbeat;
+          } else if (data.heartbeat && data.heartbeat !== prevHeartbeatRef.current) {
+            // Subsequent loads: If it changed, the ESP32 is actively pushing data!
             prevHeartbeatRef.current = data.heartbeat;
             const now = Date.now();
             setLastUpdate(now); 
             globalLastUpdate = now;
             
-            // Instantly snap to "Online" the moment a heartbeat arrives!
+            // Instantly snap to "Online" the moment a fresh heartbeat arrives!
             if (globalIsConnecting) {
               globalIsConnecting = false;
               setIsConnecting(false);
