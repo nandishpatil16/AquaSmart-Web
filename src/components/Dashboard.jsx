@@ -2,6 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Droplets, Power, Activity, ShieldAlert, CheckCircle2, TrendingUp, TrendingDown, Minus, WifiOff } from 'lucide-react';
 import { database, ref, onValue, set, isFirebaseConfigured } from '../firebase'; 
 
+// Global state to persist online status across page navigations
+let globalLastUpdate = Date.now();
+let globalSystemOnline = true;
+let isFirstLoad = true;
+
 export default function Dashboard() {
   const [levelPct, setLevelPct] = useState(0);
   const [levelLiters, setLevelLiters] = useState(0);
@@ -10,8 +15,8 @@ export default function Dashboard() {
   const [trend, setTrend] = useState('Stable');
   
   // Systematic States
-  const [lastUpdate, setLastUpdate] = useState(0); // Start at 0 so it's initially offline
-  const [systemOnline, setSystemOnline] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState(globalLastUpdate); 
+  const [systemOnline, setSystemOnline] = useState(globalSystemOnline);
   const [alerts, setAlerts] = useState([
     { id: 1, type: 'success', title: 'System Initialized', message: 'Dashboard is ready.', time: new Date().toLocaleTimeString() }
   ]);
@@ -22,9 +27,13 @@ export default function Dashboard() {
   const addAlert = (type, title, message) => {
     setAlerts(prev => [{ id: Date.now(), type, title, message, time: new Date().toLocaleTimeString() }, ...prev].slice(0, 5));
     
-    // Trigger mobile/desktop push notification
-    if (Notification.permission === 'granted') {
-      new Notification(title, { body: message, icon: '/favicon.svg' });
+    // Trigger mobile/desktop push notification (wrapped in try-catch to prevent mobile Safari/Chrome crash!)
+    try {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(title, { body: message, icon: '/favicon.svg' });
+      }
+    } catch (e) {
+      console.warn("Mobile notifications blocked or unsupported in this context", e);
     }
   };
 
@@ -38,15 +47,17 @@ export default function Dashboard() {
   // Check System Online Status
   useEffect(() => {
     const checker = setInterval(() => {
-      const isOnline = (Date.now() - lastUpdate) < 15000; // 15 seconds without update = offline
+      const isOnline = (Date.now() - globalLastUpdate) < 15000; // 15 seconds without update = offline
       if (systemOnline !== isOnline) {
         setSystemOnline(isOnline);
-        if (!isOnline) addAlert('danger', 'System Offline', 'Lost connection to ESP32 sensor node.');
-        else addAlert('success', 'System Online', 'Connection to ESP32 restored.');
+        globalSystemOnline = isOnline;
+        if (!isOnline && !isFirstLoad) addAlert('danger', 'System Offline', 'Lost connection to ESP32 sensor node.');
+        else if (isOnline && !isFirstLoad) addAlert('success', 'System Online', 'Connection to ESP32 restored.');
       }
+      isFirstLoad = false;
     }, 2000);
     return () => clearInterval(checker);
-  }, [lastUpdate, systemOnline]);
+  }, [systemOnline]);
 
   // Determine trend based on previous level
   useEffect(() => {
@@ -89,7 +100,9 @@ export default function Dashboard() {
           // We must check if the heartbeat changed to know it's alive.
           if (data.heartbeat && data.heartbeat !== prevHeartbeatRef.current) {
             prevHeartbeatRef.current = data.heartbeat;
-            setLastUpdate(Date.now()); // Set current web time!
+            const now = Date.now();
+            setLastUpdate(now); 
+            globalLastUpdate = now;
           }
         }
       });
@@ -140,6 +153,14 @@ export default function Dashboard() {
     setMotorMode(mode);
     if (isFirebaseConfigured) {
       set(ref(database, 'tank_status/motor_mode'), mode);
+      
+      // Fix for Auto Mode Sync: When switching to Auto, force Firebase to read 'OFF'
+      // If the water level is actually <= 20, Node 2 will immediately turn it back ON.
+      // This prevents the dashboard from showing 'RUNNING' when Node 2 is actually off.
+      if (mode === 'auto') {
+        setMotorOn(false);
+        set(ref(database, 'tank_status/motor_state'), false);
+      }
     }
   };
 
