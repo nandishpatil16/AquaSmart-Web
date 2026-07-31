@@ -27,6 +27,7 @@ export default function Dashboard() {
   const prevLevelRef = useRef(0);
   const prevMotorRef = useRef(false);
   const isFirstLoad = useRef(true);
+  const justMounted = useRef(true); // Prevents false-offline on navigation
 
   const addAlert = (type, title, message) => {
     setAlerts(prev => [{ id: Date.now(), type, title, message, time: new Date().toLocaleTimeString() }, ...prev].slice(0, 5));
@@ -49,7 +50,10 @@ export default function Dashboard() {
 
   // Online/offline status checker — runs every 3s
   useEffect(() => {
-    // Grace period: only run once globally, ends after 5 seconds
+    // After navigation, give 2s before reading online state to let Firebase confirm heartbeat
+    const mountTimer = setTimeout(() => { justMounted.current = false; }, 2000);
+
+    // Grace period: only run once globally on very first app open
     if (globalIsConnecting) {
       setTimeout(() => {
         globalIsConnecting = false;
@@ -59,9 +63,10 @@ export default function Dashboard() {
 
     const checker = setInterval(() => {
       if (globalIsConnecting) return;
+      if (justMounted.current) return; // Skip first ticks after navigation
 
       const isOnline = globalLastUpdate > 0 && (Date.now() - globalLastUpdate) < 45000;
-      setSystemOnline(isOnline); // Always sync local state to avoid stale display on re-mount
+      setSystemOnline(isOnline); // Sync local state
 
       if (isOnline !== globalSystemOnline) {
         globalSystemOnline = isOnline;
@@ -78,7 +83,7 @@ export default function Dashboard() {
       }
       isFirstLoad.current = false;
     }, 3000);
-    return () => clearInterval(checker);
+    return () => { clearInterval(checker); clearTimeout(mountTimer); };
   }, []);
 
   // Determine trend based on previous level

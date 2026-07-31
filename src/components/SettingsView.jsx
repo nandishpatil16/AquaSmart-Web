@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { database, ref, onValue, set, isFirebaseConfigured } from '../firebase';
-import { Sun, Moon } from 'lucide-react';
+import { database, ref, onValue, set, remove, isFirebaseConfigured } from '../firebase';
+import { Sun, Moon, Trash2 } from 'lucide-react';
 
 export default function SettingsView({ theme, toggleTheme }) {
   const [saved, setSaved] = useState(false);
@@ -33,6 +33,12 @@ export default function SettingsView({ theme, toggleTheme }) {
     }
     setSaved(true);
     setTimeout(() => setSaved(false), 3000); // hide after 3s
+  };
+
+  const handleResetAnalytics = () => {
+    if (isFirebaseConfigured && window.confirm("Are you sure you want to clear all historical analytics data? This cannot be undone.")) {
+      remove(ref(database, 'analytics'));
+    }
   };
 
   return (
@@ -103,6 +109,18 @@ export default function SettingsView({ theme, toggleTheme }) {
             {saved && <span style={{color: 'var(--accent-green)', fontWeight: '600'}}>✓ Settings Saved!</span>}
           </div>
         </div>
+      </div>
+
+      <div className="card" style={{maxWidth: '600px', marginTop: '2rem', border: '1px solid var(--accent-red)'}}>
+        <h2 style={{color: 'var(--accent-red)'}}>Danger Zone</h2>
+        <p style={{fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '1rem'}}>Irreversible actions for your system.</p>
+        <button onClick={handleResetAnalytics} style={{
+          display: 'flex', alignItems: 'center', gap: '0.5rem',
+          padding: '0.8rem 1.5rem', background: 'transparent', color: 'var(--accent-red)',
+          border: '1px solid var(--accent-red)', borderRadius: '8px', cursor: 'pointer'
+        }}>
+          <Trash2 size={18} /> Reset Analytics Data
+        </button>
       </div>
     </div>
   );
