@@ -6,11 +6,12 @@ export default function Analytics() {
   const [timeframe, setTimeframe] = useState('Daily');
   const [analyticsData, setAnalyticsData] = useState([]);
   const [totals, setTotals] = useState({ daily: 0, weekly: 0, monthly: 0 });
+  const [liveLiters, setLiveLiters] = useState(null);
 
   useEffect(() => {
     if (isFirebaseConfigured) {
       const analyticsRef = ref(database, 'analytics');
-      const unsubscribe = onValue(analyticsRef, (snapshot) => {
+      const unsubsAnalytics = onValue(analyticsRef, (snapshot) => {
         const data = snapshot.val();
         if (data) {
           // Convert object to array and sort by time
@@ -22,7 +23,16 @@ export default function Analytics() {
           processAnalytics(rawArray);
         }
       });
-      return () => unsubscribe();
+      
+      const statusRef = ref(database, 'tank_status');
+      const unsubsStatus = onValue(statusRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data && data.level_liters !== undefined) {
+           setLiveLiters(data.level_liters);
+        }
+      });
+      
+      return () => { unsubsAnalytics(); unsubsStatus(); };
     }
   }, []);
 
@@ -58,6 +68,14 @@ export default function Analytics() {
         if (curr.timestamp >= startOfMonth) monthlyConsumed += drop;
       }
     }
+    
+    // Factor in live consumption if it dropped since the last recorded snapshot
+    if (data.length > 0 && liveLiters !== null && liveLiters < data[data.length - 1].liters) {
+        const liveDrop = data[data.length - 1].liters - liveLiters;
+        dailyConsumed += liveDrop;
+        weeklyConsumed += liveDrop;
+        monthlyConsumed += liveDrop;
+    }
 
     setTotals({
       daily: dailyConsumed,
@@ -88,13 +106,28 @@ export default function Analytics() {
     }
 
     // Filter to timeframe and map for chart
-    return analyticsData
+    const filtered = analyticsData
       .filter(d => d.timestamp >= cutoff)
       .map(d => ({
         timeLabel: new Date(d.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
         level: d.liters
       }));
+      
+    // Inject Live Point
+    if (liveLiters !== null) {
+      filtered.push({
+        timeLabel: 'Now',
+        level: liveLiters
+      });
+    }
+    
+    return filtered;
   };
+
+  // Re-process totals if liveLiters changes
+  useEffect(() => {
+    if (analyticsData.length > 0) processAnalytics(analyticsData);
+  }, [liveLiters]);
 
   const chartData = getChartData();
 
