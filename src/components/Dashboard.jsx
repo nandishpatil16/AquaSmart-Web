@@ -6,7 +6,9 @@ import { database, ref, onValue, set, isFirebaseConfigured } from '../firebase';
 let globalLastUpdate = 0;
 let globalSystemOnline = false;
 let globalIsConnecting = true;
-let isFirstLoad = true;
+let globalLastHeartbeat = null;
+let globalNotifCooldown = { online: 0, offline: 0 };
+const NOTIF_COOLDOWN = 60000; // 60 second cooldown between same notification type
 
 export default function Dashboard() {
   const [levelPct, setLevelPct] = useState(0);
@@ -15,8 +17,7 @@ export default function Dashboard() {
   const [motorMode, setMotorMode] = useState('manual');
   const [trend, setTrend] = useState('Stable');
   
-  // Systematic States
-  const [lastUpdate, setLastUpdate] = useState(globalLastUpdate); 
+  // Init directly from globals — no flicker when navigating back!
   const [systemOnline, setSystemOnline] = useState(globalSystemOnline);
   const [isConnecting, setIsConnecting] = useState(globalIsConnecting);
   const [alerts, setAlerts] = useState([
@@ -25,24 +26,14 @@ export default function Dashboard() {
 
   const prevLevelRef = useRef(0);
   const prevMotorRef = useRef(false);
+  const isFirstLoad = useRef(true);
 
   const addAlert = (type, title, message) => {
     setAlerts(prev => [{ id: Date.now(), type, title, message, time: new Date().toLocaleTimeString() }, ...prev].slice(0, 5));
     
-    // Trigger mobile/desktop push notification (works for Android PWA Service Workers!)
     try {
       if ('Notification' in window && Notification.permission === 'granted') {
-        if ('serviceWorker' in navigator) {
-          navigator.serviceWorker.getRegistration().then(reg => {
-            if (reg) {
-              reg.showNotification(title, { body: message, icon: '/favicon.svg' });
-            } else {
-              new Notification(title, { body: message, icon: '/favicon.svg' });
-            }
-          });
-        } else {
-          new Notification(title, { body: message, icon: '/favicon.svg' });
-        }
+        new Notification(title, { body: message, icon: '/favicon.svg' });
       }
     } catch (e) {
       console.warn("Mobile notifications blocked or unsupported", e);
@@ -56,30 +47,39 @@ export default function Dashboard() {
     }
   }, []);
 
-  // Check System Online Status
+  // Online/offline status checker — runs every 3s
   useEffect(() => {
-    // 5 second grace period when the app opens to check if the ESP32 is actually online
+    // Grace period: only run once globally, ends after 5 seconds
     if (globalIsConnecting) {
       setTimeout(() => {
         globalIsConnecting = false;
         setIsConnecting(false);
-      }, 5000); 
+      }, 5000);
     }
 
     const checker = setInterval(() => {
-      if (globalIsConnecting) return; // Wait during the connection grace period
-      
-      const isOnline = globalLastUpdate > 0 && (Date.now() - globalLastUpdate) < 15000;
-      if (systemOnline !== isOnline) {
-        setSystemOnline(isOnline);
+      if (globalIsConnecting) return;
+
+      const isOnline = globalLastUpdate > 0 && (Date.now() - globalLastUpdate) < 45000;
+      setSystemOnline(isOnline); // Always sync local state to avoid stale display on re-mount
+
+      if (isOnline !== globalSystemOnline) {
         globalSystemOnline = isOnline;
-        if (!isOnline && !isFirstLoad) addAlert('danger', 'System Offline', 'Lost connection to ESP32 sensor node.');
-        else if (isOnline && !isFirstLoad) addAlert('success', 'System Online', 'Connection to ESP32 restored.');
+        if (!isFirstLoad.current) {
+          const now = Date.now();
+          if (isOnline && now - globalNotifCooldown.online > NOTIF_COOLDOWN) {
+            globalNotifCooldown.online = now;
+            addAlert('success', 'System Online', 'Connection to ESP32 restored.');
+          } else if (!isOnline && now - globalNotifCooldown.offline > NOTIF_COOLDOWN) {
+            globalNotifCooldown.offline = now;
+            addAlert('danger', 'System Offline', 'Lost connection to ESP32 sensor node.');
+          }
+        }
       }
-      isFirstLoad = false;
-    }, 2000);
+      isFirstLoad.current = false;
+    }, 3000);
     return () => clearInterval(checker);
-  }, [systemOnline]);
+  }, []);
 
   // Determine trend based on previous level
   useEffect(() => {
@@ -87,7 +87,6 @@ export default function Dashboard() {
     else if (levelPct < prevLevelRef.current) setTrend('Draining');
     else setTrend('Stable');
     
-    // Alert logic for levels
     if (levelPct >= 95 && prevLevelRef.current < 95) addAlert('warning', 'Tank Full', 'Water reached 95% capacity.');
     if (levelPct <= 20 && prevLevelRef.current > 20) addAlert('danger', 'Tank Low', 'Water dropped below 20% capacity.');
     
@@ -96,19 +95,16 @@ export default function Dashboard() {
 
   // Alert logic for Motor
   useEffect(() => {
-    if (systemOnline) {
+    if (systemOnline && !isFirstLoad.current) {
       if (motorOn && !prevMotorRef.current) addAlert('warning', 'Pump Started', `Motor turned ON (${motorMode} mode).`);
       else if (!motorOn && prevMotorRef.current) addAlert('success', 'Pump Stopped', `Motor turned OFF (${motorMode} mode).`);
     }
     prevMotorRef.current = motorOn;
   }, [motorOn, motorMode, systemOnline]);
 
-  const prevHeartbeatRef = useRef(null);
-
   // Real Firebase Integration or Fallback Simulation
   useEffect(() => {
     if (isFirebaseConfigured) {
-      // Connect to Firebase
       const tankRef = ref(database, 'tank_status');
       const unsubscribe = onValue(tankRef, (snapshot) => {
         const data = snapshot.val();
@@ -118,19 +114,17 @@ export default function Dashboard() {
           setMotorOn(data.motor_state || false);
           setMotorMode(data.motor_mode || 'manual');
           
-          // ESP32 sends millis() which is a small number. 
-          // We must check if the heartbeat actually CHANGES to know it's alive.
-          if (prevHeartbeatRef.current === null) {
-            // First load: just memorize the old heartbeat without assuming it's online
-            prevHeartbeatRef.current = data.heartbeat;
-          } else if (data.heartbeat && data.heartbeat !== prevHeartbeatRef.current) {
-            // Subsequent loads: If it changed, the ESP32 is actively pushing data!
-            prevHeartbeatRef.current = data.heartbeat;
-            const now = Date.now();
-            setLastUpdate(now); 
-            globalLastUpdate = now;
+          // Only update lastUpdate if the heartbeat VALUE has changed.
+          // This prevents stale cached Firebase data from marking ESP32 as Online!
+          if (globalLastHeartbeat === null) {
+            // Very first data load — memorize heartbeat but don't go online yet
+            globalLastHeartbeat = data.heartbeat;
+          } else if (data.heartbeat && data.heartbeat !== globalLastHeartbeat) {
+            // Heartbeat changed = ESP32 is actively pushing new data!
+            globalLastHeartbeat = data.heartbeat;
+            globalLastUpdate = Date.now();
             
-            // Instantly snap to "Online" the moment a fresh heartbeat arrives!
+            // If still in grace period, snap to Online immediately
             if (globalIsConnecting) {
               globalIsConnecting = false;
               setIsConnecting(false);
@@ -142,34 +136,24 @@ export default function Dashboard() {
       });
       return () => unsubscribe();
     } else {
-      // Fallback: Demonstration Simulation Logic
       const interval = setInterval(() => {
         setLevelPct((prev) => {
-          let next = prev;
-          if (motorOn) next += 2; // pump filling
-          else next -= 1; // normal usage draining
-          
-          if (next > 100) next = 100;
-          if (next < 0) next = 0;
-          
-          setLevelLiters(next * 10); // assuming 1000L capacity
+          let next = motorOn ? Math.min(prev + 2, 100) : Math.max(prev - 1, 0);
+          setLevelLiters(next * 10);
           return next;
         });
-        setLastUpdate(Date.now()); // ping
+        globalLastUpdate = Date.now();
       }, 1000); 
       return () => clearInterval(interval);
     }
   }, [motorOn]); 
 
-  // Handle Safety and Auto Mode Logic (Works for both Firebase & Fallback)
+  // Handle Safety and Auto Mode Logic
   useEffect(() => {
-    // Universal Safety Stop: Always stop at 95% regardless of mode
     if (levelPct >= 95 && motorOn) {
-      handleMotorToggle({ target: { checked: false } }, true); // Force stop pump
-    } 
-    // Auto Mode Start: Only start at 20% if in Auto Mode
-    else if (motorMode === 'auto' && levelPct <= 20 && !motorOn) {
-      handleMotorToggle({ target: { checked: true } }, true); // Auto start pump
+      handleMotorToggle({ target: { checked: false } }, true);
+    } else if (motorMode === 'auto' && levelPct <= 20 && !motorOn) {
+      handleMotorToggle({ target: { checked: true } }, true);
     }
   }, [levelPct, motorMode, motorOn]);
 
@@ -187,10 +171,6 @@ export default function Dashboard() {
     setMotorMode(mode);
     if (isFirebaseConfigured) {
       set(ref(database, 'tank_status/motor_mode'), mode);
-      
-      // Fix for Auto Mode Sync: When switching to Auto, force Firebase to read 'OFF'
-      // If the water level is actually <= 20, Node 2 will immediately turn it back ON.
-      // This prevents the dashboard from showing 'RUNNING' when Node 2 is actually off.
       if (mode === 'auto') {
         setMotorOn(false);
         set(ref(database, 'tank_status/motor_state'), false);
@@ -230,80 +210,37 @@ export default function Dashboard() {
       </div>
 
       <div className="dashboard-grid">
-        
-        {/* Left Column: Tank & Motor */}
         <div className="card">
           <h2>Live Tank Status</h2>
-          
           <div className="tank-visualizer">
-            <div 
-              className="water-wave" 
-              style={{ transform: `translateY(${100 - levelPct}%)` }}
-            ></div>
+            <div className="water-wave" style={{ transform: `translateY(${100 - levelPct}%)` }}></div>
             <div className="tank-text">
               <div className="tank-pct">{levelPct}%</div>
               <div className="tank-liters">{levelLiters} L</div>
             </div>
           </div>
-
           <div className="motor-control" style={{flexDirection: 'column', gap: '1.5rem', alignItems: 'flex-start'}}>
             <div style={{display: 'flex', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: '1rem'}}>
               <div className="motor-info">
                 <h3>Water Pump</h3>
                 <p>Mode: {motorMode.charAt(0).toUpperCase() + motorMode.slice(1)}</p>
               </div>
-              
               <div style={{display: 'flex', gap: '0.5rem', background: 'var(--bg-color)', padding: '0.3rem', borderRadius: '8px', border: '1px solid var(--border-color)'}}>
-                <button 
-                  onClick={() => handleModeChange('manual')}
-                  style={{
-                    padding: '0.5rem 1rem', 
-                    borderRadius: '6px', 
-                    border: 'none', 
-                    background: motorMode === 'manual' ? 'var(--card-bg)' : 'transparent',
-                    color: motorMode === 'manual' ? 'var(--text-main)' : 'var(--text-muted)',
-                    boxShadow: motorMode === 'manual' ? '0 2px 5px rgba(0,0,0,0.2)' : 'none',
-                    cursor: 'pointer',
-                    fontWeight: '600'
-                  }}
-                >
-                  Manual
-                </button>
-                <button 
-                  onClick={() => handleModeChange('auto')}
-                  style={{
-                    padding: '0.5rem 1rem', 
-                    borderRadius: '6px', 
-                    border: 'none', 
-                    background: motorMode === 'auto' ? 'var(--card-bg)' : 'transparent',
-                    color: motorMode === 'auto' ? 'var(--text-main)' : 'var(--text-muted)',
-                    boxShadow: motorMode === 'auto' ? '0 2px 5px rgba(0,0,0,0.2)' : 'none',
-                    cursor: 'pointer',
-                    fontWeight: '600'
-                  }}
-                >
-                  Auto
-                </button>
+                <button onClick={() => handleModeChange('manual')} style={{padding: '0.5rem 1rem', borderRadius: '6px', border: 'none', background: motorMode === 'manual' ? 'var(--card-bg)' : 'transparent', color: motorMode === 'manual' ? 'var(--text-main)' : 'var(--text-muted)', boxShadow: motorMode === 'manual' ? '0 2px 5px rgba(0,0,0,0.2)' : 'none', cursor: 'pointer', fontWeight: '600'}}>Manual</button>
+                <button onClick={() => handleModeChange('auto')} style={{padding: '0.5rem 1rem', borderRadius: '6px', border: 'none', background: motorMode === 'auto' ? 'var(--card-bg)' : 'transparent', color: motorMode === 'auto' ? 'var(--text-main)' : 'var(--text-muted)', boxShadow: motorMode === 'auto' ? '0 2px 5px rgba(0,0,0,0.2)' : 'none', cursor: 'pointer', fontWeight: '600'}}>Auto</button>
               </div>
             </div>
-            
             <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: '1rem'}}>
               <div className={`motor-status ${(systemOnline && motorOn && !isConnecting) ? 'on' : 'off'}`}>
                 <Power size={16} />
                 {(systemOnline && motorOn && !isConnecting) ? 'RUNNING' : 'STOPPED'}
               </div>
-              
               <div style={{display: 'flex', alignItems: 'center', gap: '1rem'}}>
                 {motorMode === 'auto' ? (
                   <span style={{fontSize: '0.95rem', color: 'var(--primary-light)', fontWeight: 'bold'}}>Controlled by Sensors</span>
                 ) : (
                   <label className="switch" style={{opacity: !systemOnline ? 0.5 : 1}}>
-                    <input 
-                      type="checkbox" 
-                      checked={(systemOnline && !isConnecting) ? motorOn : false} 
-                      onChange={handleMotorToggle}
-                      disabled={!systemOnline || isConnecting}
-                    />
+                    <input type="checkbox" checked={(systemOnline && !isConnecting) ? motorOn : false} onChange={handleMotorToggle} disabled={!systemOnline || isConnecting}/>
                     <span className="slider"></span>
                   </label>
                 )}
@@ -312,7 +249,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Right Column: Recent Activity */}
         <div className="card">
           <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem'}}>
             <h2 style={{marginBottom: 0}}>Activity Log</h2>
@@ -321,7 +257,6 @@ export default function Dashboard() {
               {trend}
             </div>
           </div>
-          
           <div className="alerts-list">
             {alerts.map(alert => (
               <div key={alert.id} className={`alert-item ${alert.type}`}>
@@ -337,7 +272,6 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
-
       </div>
     </div>
   );
