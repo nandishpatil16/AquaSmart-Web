@@ -3,44 +3,50 @@ import { Power, Activity, ShieldAlert, CheckCircle2, TrendingUp, TrendingDown, M
 import { database, ref, onValue, set, isFirebaseConfigured } from '../firebase';
 
 // =============================================================================
-// MODULE-LEVEL GLOBALS — survive ALL page navigations, created only once
+// MODULE-LEVEL GLOBALS — survive ALL page navigations, never reset on re-mount
 // =============================================================================
-let globalLastUpdate = 0;       // Timestamp of last Firebase write from ESP32
-let globalSystemOnline = false; // Shared truth for online status
-let globalIsConnecting = true;  // True only on very first app open
-let globalCheckerStarted = false; // Ensures the interval is created only once
+let globalLastUpdate    = 0;       // Timestamp when we last confirmed ESP is LIVE
+let globalLastHeartbeat = null;    // Last heartbeat value seen — to detect NEW writes
+let globalSystemOnline  = false;   // Cached online status
+let globalIsConnecting  = true;    // True only on very first app open
+let globalCheckerStarted = false;
 let globalNotifCooldown = { online: 0, offline: 0 };
-let globalFirebaseConnected = true; // Tracks if browser<->Firebase WS is alive
-const NOTIF_COOLDOWN_MS = 60000;
-const OFFLINE_TIMEOUT_MS = 30000;
 
-// Registry so any mounted Dashboard instance gets state updates
+// Cache last known sensor values so they survive page navigation without flashing 0
+let globalLevelPct    = 0;
+let globalLevelLiters = 0;
+let globalMotorOn     = false;
+let globalMotorMode   = 'manual';
+
+// If no confirmed live heartbeat for 45s → Offline
+// Generous window handles mobile hotspot jitter (5s heartbeat, 45s = 9 missed beats before alert)
+const OFFLINE_TIMEOUT_MS  = 45000;
+const NOTIF_COOLDOWN_MS   = 60000;
+
+// Registry — push online/offline state to any mounted Dashboard
 const stateListeners = new Set();
-
 function broadcastState() {
-  stateListeners.forEach(fn => fn({
-    online: globalSystemOnline,
-    connecting: globalIsConnecting,
-  }));
+  stateListeners.forEach(fn => fn({ online: globalSystemOnline, connecting: globalIsConnecting }));
 }
 
-// Start the global checker exactly once for the lifetime of the page
+// Start the global 3-second checker exactly ONCE per browser session
 function startGlobalChecker() {
   if (globalCheckerStarted) return;
   globalCheckerStarted = true;
 
-  // 8 second grace period on very first app open (let ESP32 boot + Firebase connect)
+  // 10s grace on very first open — let Firebase connect + get first heartbeat
   setTimeout(() => {
     globalIsConnecting = false;
     broadcastState();
-  }, 8000);
+  }, 10000);
 
   setInterval(() => {
     if (globalIsConnecting) return;
+    // Online = we have seen at least one confirmed live heartbeat recently
     const isOnline = globalLastUpdate > 0 && (Date.now() - globalLastUpdate) < OFFLINE_TIMEOUT_MS;
     if (isOnline !== globalSystemOnline) {
       globalSystemOnline = isOnline;
-      broadcastState(); // push to all mounted Dashboard components
+      broadcastState();
     }
   }, 3000);
 }
@@ -49,36 +55,27 @@ function startGlobalChecker() {
 // DASHBOARD COMPONENT
 // =============================================================================
 export default function Dashboard() {
-  const [levelPct, setLevelPct] = useState(0);
-  const [levelLiters, setLevelLiters] = useState(0);
-  const [motorOn, setMotorOn] = useState(false);
-  const [motorMode, setMotorMode] = useState('manual');
-  const [trend, setTrend] = useState('Stable');
-
-  // Initialize directly from globals — zero flicker on re-mount/navigation
+  // Init from globals so there is ZERO flash on navigation back
+  const [levelPct,    setLevelPct]    = useState(globalLevelPct);
+  const [levelLiters, setLevelLiters] = useState(globalLevelLiters);
+  const [motorOn,     setMotorOn]     = useState(globalMotorOn);
+  const [motorMode,   setMotorMode]   = useState(globalMotorMode);
+  const [trend,       setTrend]       = useState('Stable');
   const [systemOnline, setSystemOnline] = useState(globalSystemOnline);
   const [isConnecting, setIsConnecting] = useState(globalIsConnecting);
-
   const [alerts, setAlerts] = useState([
-    { id: 1, type: 'success', title: 'System Initialized', message: 'Dashboard is ready.', time: new Date().toLocaleTimeString() }
+    { id: 1, type: 'success', title: 'System Initialized', message: 'Dashboard ready.', time: new Date().toLocaleTimeString() }
   ]);
 
-  const prevLevelRef = useRef(levelPct);
-  const prevMotorRef = useRef(false);
-  const alertFiredRef = useRef(false); // Don't alert on very first render
+  const prevLevelRef  = useRef(globalLevelPct);
+  const prevMotorRef  = useRef(globalMotorOn);
+  const firstRender   = useRef(true); // Suppress alerts on initial render
 
-  // ── Push Notification helper ─────────────────────────────────────────────
+  // ── Notification helper ──────────────────────────────────────────────────
   const sendNotif = (title, body) => {
     try {
       if ('Notification' in window && Notification.permission === 'granted') {
-        if ('serviceWorker' in navigator) {
-          navigator.serviceWorker.getRegistration().then(reg => {
-            if (reg) reg.showNotification(title, { body, icon: '/favicon.svg' });
-            else new Notification(title, { body });
-          });
-        } else {
-          new Notification(title, { body });
-        }
+        new Notification(title, { body, icon: '/favicon.svg' });
       }
     } catch (e) { /* silent */ }
   };
@@ -91,50 +88,51 @@ export default function Dashboard() {
     if (notify) sendNotif(title, message);
   };
 
-  // ── Request notification permission on mount ─────────────────────────────
+  // ── Request notification permission ──────────────────────────────────────
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
     }
-  }, []);
-
-  // ── Start the single global status checker ───────────────────────────────
-  useEffect(() => {
     startGlobalChecker();
   }, []);
 
-  // ── Subscribe to global state broadcasts ─────────────────────────────────
+  // ── Subscribe to global online/offline broadcasts ─────────────────────────
   useEffect(() => {
     const listener = ({ online, connecting }) => {
       setSystemOnline(online);
       setIsConnecting(connecting);
 
-      if (!alertFiredRef.current) { alertFiredRef.current = true; return; }
+      if (firstRender.current) { firstRender.current = false; return; }
 
       const now = Date.now();
       if (online && now - globalNotifCooldown.online > NOTIF_COOLDOWN_MS) {
         globalNotifCooldown.online = now;
-        addAlert('success', 'System Online', 'Connection to ESP32 restored.');
+        addAlert('success', 'System Online', 'ESP32 connection restored.');
       } else if (!online && !connecting && now - globalNotifCooldown.offline > NOTIF_COOLDOWN_MS) {
         globalNotifCooldown.offline = now;
-        addAlert('danger', 'System Offline', 'Lost connection to ESP32 sensor node.');
+        addAlert('danger', 'System Offline', 'Lost connection to ESP32.');
       }
     };
     stateListeners.add(listener);
     return () => stateListeners.delete(listener);
   }, []);
 
-  // ── Firebase listener — updates data AND globalLastUpdate on every write ──
-  // Uses a ref so we can tear it down and rebuild on stale connection recovery
-  const unsubTankRef = useRef(null);
+  // ── Firebase data listener ────────────────────────────────────────────────
+  // KEY DESIGN DECISIONS:
+  // 1. We update globalLastUpdate ONLY when the heartbeat VALUE changes.
+  //    This means: cached/stale Firebase data fires onValue but heartbeat is
+  //    the same old value → globalLastUpdate is NOT advanced → system goes
+  //    Offline correctly if ESP is off.
+  // 2. Sensor values (levelPct etc.) are ALWAYS updated so the UI stays fresh,
+  //    and are cached in globals so navigation back shows the last real value.
+  // 3. The .info/connected listener tells us when the browser WebSocket
+  //    reconnects to Firebase — we force a fresh onValue subscription so stale
+  //    connections are healed automatically.
+  const unsubTankRef     = useRef(null);
   const lastEventTimeRef = useRef(Date.now());
 
   const subscribeTankStatus = () => {
-    // Tear down existing listener before re-subscribing
-    if (unsubTankRef.current) {
-      unsubTankRef.current();
-      unsubTankRef.current = null;
-    }
+    if (unsubTankRef.current) { unsubTankRef.current(); unsubTankRef.current = null; }
 
     const tankRef = ref(database, 'tank_status');
     unsubTankRef.current = onValue(tankRef, (snapshot) => {
@@ -143,13 +141,31 @@ export default function Dashboard() {
 
       lastEventTimeRef.current = Date.now();
 
-      setLevelPct(data.level_pct ?? 0);
-      setLevelLiters(data.level_liters ?? 0);
-      setMotorOn(data.motor_state ?? false);
-      setMotorMode(data.motor_mode ?? 'manual');
+      // Always update + cache sensor values (prevents 0-flash on re-navigation)
+      const pct    = data.level_pct    ?? globalLevelPct;
+      const liters = data.level_liters ?? globalLevelLiters;
+      const motor  = data.motor_state  ?? globalMotorOn;
+      const mode   = data.motor_mode   ?? globalMotorMode;
 
-      if (data.heartbeat !== undefined && data.heartbeat !== null) {
+      globalLevelPct    = pct;
+      globalLevelLiters = liters;
+      globalMotorOn     = motor;
+      globalMotorMode   = mode;
+
+      setLevelPct(pct);
+      setLevelLiters(liters);
+      setMotorOn(motor);
+      setMotorMode(mode);
+
+      // ── Only advance globalLastUpdate when heartbeat VALUE changes ────────
+      // This is the critical gate: stale cached Firebase data has the SAME
+      // heartbeat as last time. Only a NEW write from the ESP32 changes it.
+      const hb = data.heartbeat;
+      if (hb !== undefined && hb !== null && hb !== globalLastHeartbeat) {
+        globalLastHeartbeat = hb;
         globalLastUpdate = Date.now();
+
+        // Snap out of connecting state immediately on first live heartbeat
         if (globalIsConnecting) {
           globalIsConnecting = false;
           globalSystemOnline = true;
@@ -161,44 +177,37 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!isFirebaseConfigured) {
-      // Demo simulation fallback
+      // Demo mode simulation
       const interval = setInterval(() => {
+        globalLastUpdate = Date.now();
+        globalLastHeartbeat = Date.now(); // simulate changing heartbeat
         setLevelPct(prev => {
-          const next = motorOn ? Math.min(prev + 2, 100) : Math.max(prev - 1, 0);
-          setLevelLiters(next * 10);
+          const next = Math.max(0, prev - 1);
+          globalLevelPct = next; setLevelLiters(next * 10); globalLevelLiters = next * 10;
           return next;
         });
-        globalLastUpdate = Date.now();
       }, 1000);
       return () => clearInterval(interval);
     }
 
-    // 1. Subscribe to Firebase connection state (/.info/connected)
-    // This detects when the browser's WebSocket to Firebase drops & recovers.
+    // Watch browser ↔ Firebase WebSocket state
+    // When it drops and recovers (e.g. phone hotspot toggled), force re-subscribe
     const connectedRef = ref(database, '.info/connected');
     const unsubConnected = onValue(connectedRef, (snap) => {
-      const connected = snap.val();
-      globalFirebaseConnected = connected;
-      if (connected) {
-        // Firebase WebSocket just recovered — force a fresh re-subscription
-        // to get live data again (clears any stale cached listener state)
-        console.log('[AquaSmart] Firebase reconnected — re-subscribing...');
+      if (snap.val() === true) {
+        // Browser reconnected to Firebase — rebuild listener for fresh data
         subscribeTankStatus();
       }
     });
 
-    // 2. Initial subscription
+    // Initial subscription
     subscribeTankStatus();
 
-    // 3. Self-healing watchdog: if we haven't received a Firebase event in 40s
-    // while supposedly connected, tear down and re-subscribe to force a fresh
-    // WebSocket frame (fixes silent stale connections on mobile hotspots)
+    // Watchdog: if 40s of silence while Firebase says connected → rebuild
     const watchdog = setInterval(() => {
-      const silentMs = Date.now() - lastEventTimeRef.current;
-      if (silentMs > 40000 && globalFirebaseConnected) {
-        console.log('[AquaSmart] Watchdog: stale listener detected, resubscribing...');
+      if (Date.now() - lastEventTimeRef.current > 40000) {
         subscribeTankStatus();
-        lastEventTimeRef.current = Date.now(); // Reset to avoid rapid loops
+        lastEventTimeRef.current = Date.now();
       }
     }, 15000);
 
@@ -211,40 +220,43 @@ export default function Dashboard() {
 
   // ── Trend detection ───────────────────────────────────────────────────────
   useEffect(() => {
-    if (levelPct > prevLevelRef.current) setTrend('Filling');
+    if (firstRender.current) return;
+    if (levelPct > prevLevelRef.current)      setTrend('Filling');
     else if (levelPct < prevLevelRef.current) setTrend('Draining');
-    else setTrend('Stable');
+    else                                       setTrend('Stable');
 
-    if (levelPct >= 95 && prevLevelRef.current < 95) addAlert('warning', 'Tank Full', 'Water level reached 95%.');
-    if (levelPct <= 20 && prevLevelRef.current > 20 && prevLevelRef.current !== 0) addAlert('danger', 'Tank Low', 'Water dropped below 20%.');
-
+    if (levelPct >= 95 && prevLevelRef.current < 95) addAlert('warning', 'Tank Full', 'Water level at 95%.');
+    if (levelPct <= 20 && prevLevelRef.current > 20 && prevLevelRef.current !== 0)
+      addAlert('danger', 'Tank Low', 'Water dropped below 20%.');
     prevLevelRef.current = levelPct;
   }, [levelPct]);
 
-  // ── Motor state alert ─────────────────────────────────────────────────────
+  // ── Motor alert ───────────────────────────────────────────────────────────
   useEffect(() => {
-    if (systemOnline && alertFiredRef.current) {
+    if (!firstRender.current && systemOnline) {
       if (motorOn && !prevMotorRef.current) addAlert('warning', 'Pump Started', `Motor ON (${motorMode} mode).`);
       else if (!motorOn && prevMotorRef.current) addAlert('success', 'Pump Stopped', `Motor OFF (${motorMode} mode).`);
     }
     prevMotorRef.current = motorOn;
   }, [motorOn]);
 
-  // ── Motor & safety handlers ───────────────────────────────────────────────
-  const handleMotorToggle = (e, force = false) => {
-    if (motorMode !== 'auto' || force) {
-      const newState = typeof e === 'boolean' ? e : e.target.checked;
-      setMotorOn(newState);
-      if (isFirebaseConfigured) set(ref(database, 'tank_status/motor_state'), newState);
-    }
+  // ── Control handlers ──────────────────────────────────────────────────────
+  const handleMotorToggle = (e) => {
+    if (motorMode === 'auto') return;
+    const newState = e.target.checked;
+    setMotorOn(newState);
+    globalMotorOn = newState;
+    if (isFirebaseConfigured) set(ref(database, 'tank_status/motor_state'), newState);
   };
 
   const handleModeChange = (mode) => {
     setMotorMode(mode);
+    globalMotorMode = mode;
     if (isFirebaseConfigured) {
       set(ref(database, 'tank_status/motor_mode'), mode);
       if (mode === 'auto') {
         setMotorOn(false);
+        globalMotorOn = false;
         set(ref(database, 'tank_status/motor_state'), false);
       }
     }
@@ -252,8 +264,8 @@ export default function Dashboard() {
 
   const getAlertIcon = (type) => {
     if (type === 'success') return <CheckCircle2 color="var(--accent-green)" />;
-    if (type === 'danger') return <ShieldAlert color="var(--accent-red)" />;
-    if (type === 'warning') return <Activity color="#ff9800" />;
+    if (type === 'danger')  return <ShieldAlert  color="var(--accent-red)" />;
+    if (type === 'warning') return <Activity     color="#ff9800" />;
     return <Activity />;
   };
 
@@ -317,9 +329,9 @@ export default function Dashboard() {
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: '1rem' }}>
-              <div className={`motor-status ${(isLive && motorOn) ? 'on' : 'off'}`}>
+              <div className={`motor-status ${isLive && motorOn ? 'on' : 'off'}`}>
                 <Power size={16} />
-                {(isLive && motorOn) ? 'RUNNING' : 'STOPPED'}
+                {isLive && motorOn ? 'RUNNING' : 'STOPPED'}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                 {motorMode === 'auto' ? (
