@@ -151,7 +151,7 @@ export default function MotorHistory() {
                   </div>
                   <div style={{textAlign: 'center'}}>
                     <span style={{color: 'var(--text-muted)', fontSize: '0.8rem', display: 'block'}}>Total Fill</span>
-                    <strong style={{fontSize: '1.2rem', color: 'var(--primary-light)'}}>+{item.end_pct - item.start_pct}%</strong>
+                    <strong style={{fontSize: '1.2rem', color: 'var(--primary-light)'}}>+{Math.max(0, item.end_pct - item.start_pct)}%</strong>
                   </div>
                 </div>
               </div>
