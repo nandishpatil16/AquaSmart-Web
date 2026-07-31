@@ -6,35 +6,33 @@ import { database, ref, onValue, set, isFirebaseConfigured } from '../firebase';
 // MODULE-LEVEL GLOBALS — survive ALL page navigations, never reset on re-mount
 // =============================================================================
 let globalLastUpdate    = 0;       // Timestamp when we last confirmed ESP is LIVE
-let globalLastHeartbeat = null;    // Last heartbeat value seen — to detect NEW writes
 let globalSystemOnline  = false;   // Cached online status
 let globalIsConnecting  = true;    // True only on very first app open
 let globalCheckerStarted = false;
 let globalNotifCooldown = { online: 0, offline: 0 };
 
-// Cache last known sensor values so they survive page navigation without flashing 0
+// Cache sensor values — survive navigation, prevents 0-flash
 let globalLevelPct    = 0;
 let globalLevelLiters = 0;
 let globalMotorOn     = false;
 let globalMotorMode   = 'manual';
 
-// If no confirmed live heartbeat for 45s → Offline
-// Generous window handles mobile hotspot jitter (5s heartbeat, 45s = 9 missed beats before alert)
+// Online = heartbeat server timestamp is within this window of Date.now()
 const OFFLINE_TIMEOUT_MS  = 45000;
 const NOTIF_COOLDOWN_MS   = 60000;
 
-// Registry — push online/offline state to any mounted Dashboard
+// Registry — push state changes to all mounted Dashboard instances
 const stateListeners = new Set();
 function broadcastState() {
   stateListeners.forEach(fn => fn({ online: globalSystemOnline, connecting: globalIsConnecting }));
 }
 
-// Start the global 3-second checker exactly ONCE per browser session
+// Start the global checker ONCE per browser session
 function startGlobalChecker() {
   if (globalCheckerStarted) return;
   globalCheckerStarted = true;
 
-  // 10s grace on very first open — let Firebase connect + get first heartbeat
+  // 10s grace on first app open
   setTimeout(() => {
     globalIsConnecting = false;
     broadcastState();
@@ -42,7 +40,6 @@ function startGlobalChecker() {
 
   setInterval(() => {
     if (globalIsConnecting) return;
-    // Online = we have seen at least one confirmed live heartbeat recently
     const isOnline = globalLastUpdate > 0 && (Date.now() - globalLastUpdate) < OFFLINE_TIMEOUT_MS;
     if (isOnline !== globalSystemOnline) {
       globalSystemOnline = isOnline;
@@ -55,7 +52,6 @@ function startGlobalChecker() {
 // DASHBOARD COMPONENT
 // =============================================================================
 export default function Dashboard() {
-  // Init from globals so there is ZERO flash on navigation back
   const [levelPct,    setLevelPct]    = useState(globalLevelPct);
   const [levelLiters, setLevelLiters] = useState(globalLevelLiters);
   const [motorOn,     setMotorOn]     = useState(globalMotorOn);
@@ -69,7 +65,7 @@ export default function Dashboard() {
 
   const prevLevelRef  = useRef(globalLevelPct);
   const prevMotorRef  = useRef(globalMotorOn);
-  const firstRender   = useRef(true); // Suppress alerts on initial render
+  const firstRender   = useRef(true);
 
   // ── Notification helper ──────────────────────────────────────────────────
   const sendNotif = (title, body) => {
@@ -101,9 +97,7 @@ export default function Dashboard() {
     const listener = ({ online, connecting }) => {
       setSystemOnline(online);
       setIsConnecting(connecting);
-
       if (firstRender.current) { firstRender.current = false; return; }
-
       const now = Date.now();
       if (online && now - globalNotifCooldown.online > NOTIF_COOLDOWN_MS) {
         globalNotifCooldown.online = now;
@@ -117,17 +111,13 @@ export default function Dashboard() {
     return () => stateListeners.delete(listener);
   }, []);
 
-  // ── Firebase data listener ────────────────────────────────────────────────
-  // KEY DESIGN DECISIONS:
-  // 1. We update globalLastUpdate ONLY when the heartbeat VALUE changes.
-  //    This means: cached/stale Firebase data fires onValue but heartbeat is
-  //    the same old value → globalLastUpdate is NOT advanced → system goes
-  //    Offline correctly if ESP is off.
-  // 2. Sensor values (levelPct etc.) are ALWAYS updated so the UI stays fresh,
-  //    and are cached in globals so navigation back shows the last real value.
-  // 3. The .info/connected listener tells us when the browser WebSocket
-  //    reconnects to Firebase — we force a fresh onValue subscription so stale
-  //    connections are healed automatically.
+  // ── Firebase listener ─────────────────────────────────────────────────────
+  // KEY FIX: ESP32 now pushes Firebase SERVER TIMESTAMP as heartbeat.
+  // We check: is the heartbeat timestamp within 45s of Date.now()?
+  // - Stale cached data → old timestamp → check FAILS → correctly Offline
+  // - Live ESP data → recent timestamp → check PASSES → correctly Online
+  // This is IMPOSSIBLE to fool, regardless of page reload, navigation, or
+  // Firebase WebSocket reconnection.
   const unsubTankRef     = useRef(null);
   const lastEventTimeRef = useRef(Date.now());
 
@@ -141,7 +131,7 @@ export default function Dashboard() {
 
       lastEventTimeRef.current = Date.now();
 
-      // Always update + cache sensor values (prevents 0-flash on re-navigation)
+      // Always update + cache sensor values
       const pct    = data.level_pct    ?? globalLevelPct;
       const liters = data.level_liters ?? globalLevelLiters;
       const motor  = data.motor_state  ?? globalMotorOn;
@@ -157,30 +147,32 @@ export default function Dashboard() {
       setMotorOn(motor);
       setMotorMode(mode);
 
-      // ── Only advance globalLastUpdate when heartbeat VALUE changes ────────
-      // This is the critical gate: stale cached Firebase data has the SAME
-      // heartbeat as last time. Only a NEW write from the ESP32 changes it.
+      // ── THE BULLETPROOF CHECK ──────────────────────────────────────────
+      // heartbeat is a Firebase SERVER TIMESTAMP (milliseconds since epoch).
+      // If ESP is live: heartbeat = ~Date.now() (within a few seconds)
+      // If ESP is off:  heartbeat = old timestamp from hours/days ago
       const hb = data.heartbeat;
-      if (hb !== undefined && hb !== null && hb !== globalLastHeartbeat) {
-        globalLastHeartbeat = hb;
-        globalLastUpdate = Date.now();
+      if (typeof hb === 'number' && hb > 0) {
+        const age = Date.now() - hb;
+        if (age < OFFLINE_TIMEOUT_MS) {
+          // Heartbeat is fresh — ESP is definitely alive right now
+          globalLastUpdate = Date.now();
 
-        // Snap out of connecting state immediately on first live heartbeat
-        if (globalIsConnecting) {
-          globalIsConnecting = false;
-          globalSystemOnline = true;
-          broadcastState();
+          if (globalIsConnecting) {
+            globalIsConnecting = false;
+            globalSystemOnline = true;
+            broadcastState();
+          }
         }
+        // else: heartbeat is old/stale → do NOT advance globalLastUpdate
       }
     });
   };
 
   useEffect(() => {
     if (!isFirebaseConfigured) {
-      // Demo mode simulation
       const interval = setInterval(() => {
         globalLastUpdate = Date.now();
-        globalLastHeartbeat = Date.now(); // simulate changing heartbeat
         setLevelPct(prev => {
           const next = Math.max(0, prev - 1);
           globalLevelPct = next; setLevelLiters(next * 10); globalLevelLiters = next * 10;
@@ -190,20 +182,16 @@ export default function Dashboard() {
       return () => clearInterval(interval);
     }
 
-    // Watch browser ↔ Firebase WebSocket state
-    // When it drops and recovers (e.g. phone hotspot toggled), force re-subscribe
+    // Watch browser ↔ Firebase WebSocket
     const connectedRef = ref(database, '.info/connected');
     const unsubConnected = onValue(connectedRef, (snap) => {
-      if (snap.val() === true) {
-        // Browser reconnected to Firebase — rebuild listener for fresh data
-        subscribeTankStatus();
-      }
+      if (snap.val() === true) subscribeTankStatus();
     });
 
     // Initial subscription
     subscribeTankStatus();
 
-    // Watchdog: if 40s of silence while Firebase says connected → rebuild
+    // Watchdog: re-subscribe if 40s of silence
     const watchdog = setInterval(() => {
       if (Date.now() - lastEventTimeRef.current > 40000) {
         subscribeTankStatus();
