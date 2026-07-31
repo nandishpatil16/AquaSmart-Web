@@ -10,8 +10,9 @@ let globalSystemOnline = false; // Shared truth for online status
 let globalIsConnecting = true;  // True only on very first app open
 let globalCheckerStarted = false; // Ensures the interval is created only once
 let globalNotifCooldown = { online: 0, offline: 0 };
-const NOTIF_COOLDOWN_MS = 60000; // Min gap between same-type notification
-const OFFLINE_TIMEOUT_MS = 30000; // Mark offline if no Firebase update for 30s
+let globalFirebaseConnected = true; // Tracks if browser<->Firebase WS is alive
+const NOTIF_COOLDOWN_MS = 60000;
+const OFFLINE_TIMEOUT_MS = 30000;
 
 // Registry so any mounted Dashboard instance gets state updates
 const stateListeners = new Set();
@@ -124,6 +125,40 @@ export default function Dashboard() {
   }, []);
 
   // ── Firebase listener — updates data AND globalLastUpdate on every write ──
+  // Uses a ref so we can tear it down and rebuild on stale connection recovery
+  const unsubTankRef = useRef(null);
+  const lastEventTimeRef = useRef(Date.now());
+
+  const subscribeTankStatus = () => {
+    // Tear down existing listener before re-subscribing
+    if (unsubTankRef.current) {
+      unsubTankRef.current();
+      unsubTankRef.current = null;
+    }
+
+    const tankRef = ref(database, 'tank_status');
+    unsubTankRef.current = onValue(tankRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+
+      lastEventTimeRef.current = Date.now();
+
+      setLevelPct(data.level_pct ?? 0);
+      setLevelLiters(data.level_liters ?? 0);
+      setMotorOn(data.motor_state ?? false);
+      setMotorMode(data.motor_mode ?? 'manual');
+
+      if (data.heartbeat !== undefined && data.heartbeat !== null) {
+        globalLastUpdate = Date.now();
+        if (globalIsConnecting) {
+          globalIsConnecting = false;
+          globalSystemOnline = true;
+          broadcastState();
+        }
+      }
+    });
+  };
+
   useEffect(() => {
     if (!isFirebaseConfigured) {
       // Demo simulation fallback
@@ -138,39 +173,41 @@ export default function Dashboard() {
       return () => clearInterval(interval);
     }
 
-    const tankRef = ref(database, 'tank_status');
-    const unsubscribe = onValue(tankRef, (snapshot) => {
-      const data = snapshot.val();
-      if (!data) return;
-
-      // ── Always update sensor data ──────────────────────────────────────
-      setLevelPct(data.level_pct ?? 0);
-      setLevelLiters(data.level_liters ?? 0);
-      setMotorOn(data.motor_state ?? false);
-      setMotorMode(data.motor_mode ?? 'manual');
-
-      // ── Mark as live ONLY if heartbeat is a recent server timestamp ────
-      // ESP32 pushes heartbeat = millis() every 5s.
-      // Firebase Realtime DB fires onValue for ANY child change.
-      // We use the presence of a heartbeat field itself as proof of life.
-      // If ESP32 is offline, Firebase won't receive new writes, so
-      // onValue won't fire again after the initial cached snapshot.
-      // We distinguish the initial cached snapshot from a live update
-      // by checking: did this snapshot arrive more than 1 second after mount?
-      if (data.heartbeat !== undefined && data.heartbeat !== null) {
-        globalLastUpdate = Date.now();
-
-        // If still in opening grace period, snap to Online immediately
-        if (globalIsConnecting) {
-          globalIsConnecting = false;
-          globalSystemOnline = true;
-          broadcastState();
-        }
+    // 1. Subscribe to Firebase connection state (/.info/connected)
+    // This detects when the browser's WebSocket to Firebase drops & recovers.
+    const connectedRef = ref(database, '.info/connected');
+    const unsubConnected = onValue(connectedRef, (snap) => {
+      const connected = snap.val();
+      globalFirebaseConnected = connected;
+      if (connected) {
+        // Firebase WebSocket just recovered — force a fresh re-subscription
+        // to get live data again (clears any stale cached listener state)
+        console.log('[AquaSmart] Firebase reconnected — re-subscribing...');
+        subscribeTankStatus();
       }
     });
 
-    return () => unsubscribe();
-  }, []); // No dependency on motorOn — we read it from Firebase directly
+    // 2. Initial subscription
+    subscribeTankStatus();
+
+    // 3. Self-healing watchdog: if we haven't received a Firebase event in 40s
+    // while supposedly connected, tear down and re-subscribe to force a fresh
+    // WebSocket frame (fixes silent stale connections on mobile hotspots)
+    const watchdog = setInterval(() => {
+      const silentMs = Date.now() - lastEventTimeRef.current;
+      if (silentMs > 40000 && globalFirebaseConnected) {
+        console.log('[AquaSmart] Watchdog: stale listener detected, resubscribing...');
+        subscribeTankStatus();
+        lastEventTimeRef.current = Date.now(); // Reset to avoid rapid loops
+      }
+    }, 15000);
+
+    return () => {
+      unsubConnected();
+      if (unsubTankRef.current) unsubTankRef.current();
+      clearInterval(watchdog);
+    };
+  }, []);
 
   // ── Trend detection ───────────────────────────────────────────────────────
   useEffect(() => {
