@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { database, ref, onValue, remove, isFirebaseConfigured } from '../firebase';
+import { database, ref, onValue, isFirebaseConfigured } from '../firebase';
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -160,14 +160,6 @@ export default function Analytics() {
     return filtered;
   };
 
-  const handleResetAnalytics = () => {
-    if (!isFirebaseConfigured) return;
-    if (!window.confirm('Are you sure you want to reset all analytics data? This cannot be undone.')) return;
-    remove(ref(database, 'analytics'));
-    setAnalyticsData([]);
-    setTotals({ daily: 0, weekly: 0, monthly: 0 });
-  };
-
   const chartData = getChartData();
   const currentMonthName = MONTH_NAMES[new Date().getMonth()];
 
@@ -266,27 +258,6 @@ export default function Analytics() {
             </AreaChart>
           </ResponsiveContainer>
         )}
-      </div>
-
-      {/* Danger Zone */}
-      <div className="card" style={{marginTop: '1.5rem', borderColor: 'rgba(220,53,69,0.3)'}}>
-        <h2 style={{color: 'var(--accent-red)'}}>Danger Zone</h2>
-        <p style={{color: 'var(--text-muted)', marginBottom: '1.5rem'}}>This will permanently delete all recorded analytics history. Use this to start fresh at the beginning of a new month.</p>
-        <button
-          onClick={handleResetAnalytics}
-          style={{
-            padding: '0.8rem 2rem',
-            background: 'rgba(220,53,69,0.15)',
-            color: 'var(--accent-red)',
-            border: '1px solid rgba(220,53,69,0.4)',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            fontWeight: '600',
-            fontSize: '1rem'
-          }}
-        >
-          🗑️ Reset All Analytics
-        </button>
       </div>
     </div>
   );
