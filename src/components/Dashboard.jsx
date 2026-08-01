@@ -107,24 +107,25 @@ export default function Dashboard() {
     return () => stateListeners.delete(listener);
   }, []);
 
-  // ── Firebase listeners — set up ONCE, never torn down or re-subscribed ────
+  // ── Firebase listener with self-healing ─────────────────────────────────
   //
-  // ROOT CAUSE of all previous offline flickers:
-  //   Every re-subscription fires immediately with OLD CACHED data.
-  //   Old cached data has an old heartbeat → age check fails → brief Offline.
+  // WHY RE-SUBSCRIPTION IS SAFE WITH SERVER TIMESTAMPS:
+  //   Re-subscription fires onValue immediately with cached data.
+  //   With the OLD approach (heartbeat value comparison), cached data
+  //   looked "new" because globalLastHeartbeat was null → flicker.
+  //   With SERVER TIMESTAMPS, a stale heartbeat has an old timestamp
+  //   that ALWAYS fails the age check → no flicker, ever.
   //
-  // FIX: One stable listener per path. Firebase SDK automatically re-syncs
-  // when the connection drops and recovers. No manual re-subscription needed.
+  // THREE INDEPENDENT RECOVERY MECHANISMS:
+  //   1. .info/connected → re-subscribe when WebSocket reconnects
+  //   2. 60s watchdog    → catches silently dead listeners
+  //   3. visibilitychange → recovers when user returns to tab
   //
-  // ROOT CAUSE of clock drift offline:
-  //   Browser clock vs Firebase server clock can differ by many seconds.
-  //   Fix: Read /.info/serverTimeOffset to get the exact difference.
-  //   Adjusted now = Date.now() + globalServerOffset
-  //   Compare: adjustedNow - heartbeat < OFFLINE_TIMEOUT_MS
-  //
+  const unsubTankRef     = useRef(null);
+  const lastEventTimeRef = useRef(Date.now());
+
   useEffect(() => {
     if (!isFirebaseConfigured) {
-      // Demo simulation
       const interval = setInterval(() => {
         globalLastUpdate = Date.now();
         setLevelPct(prev => {
@@ -136,59 +137,104 @@ export default function Dashboard() {
       return () => clearInterval(interval);
     }
 
-    // 1. Server time offset — fixes browser clock drift
-    //    Firebase gives us: serverTimeOffset = serverTime - clientTime
-    //    So: serverTime = Date.now() + serverTimeOffset
+    // ── Server time offset (fixes browser ↔ server clock drift) ──────
     const offsetRef = ref(database, '.info/serverTimeOffset');
     const unsubOffset = onValue(offsetRef, (snap) => {
       globalServerOffset = snap.val() || 0;
     });
 
-    // 2. Tank status — SINGLE stable listener, never re-subscribed
-    const tankRef = ref(database, 'tank_status');
-    const unsubTank = onValue(tankRef, (snapshot) => {
-      const data = snapshot.val();
-      if (!data) return;
+    // ── Tank status listener (with re-subscribe capability) ──────────
+    const subscribeTankStatus = () => {
+      // Tear down old listener first (safe to call if null)
+      if (unsubTankRef.current) {
+        unsubTankRef.current();
+        unsubTankRef.current = null;
+      }
 
-      // Always update + cache sensor values (prevents 0-flash on navigation)
-      const pct    = data.level_pct    ?? globalLevelPct;
-      const liters = data.level_liters ?? globalLevelLiters;
-      const motor  = data.motor_state  ?? globalMotorOn;
-      const mode   = data.motor_mode   ?? globalMotorMode;
+      const tankRef = ref(database, 'tank_status');
+      unsubTankRef.current = onValue(tankRef, (snapshot) => {
+        const data = snapshot.val();
+        if (!data) return;
 
-      globalLevelPct    = pct;
-      globalLevelLiters = liters;
-      globalMotorOn     = motor;
-      globalMotorMode   = mode;
+        // Mark that the listener is alive
+        lastEventTimeRef.current = Date.now();
 
-      setLevelPct(pct);
-      setLevelLiters(liters);
-      setMotorOn(motor);
-      setMotorMode(mode);
+        // Cache sensor values (prevents 0-flash on navigation)
+        const pct    = data.level_pct    ?? globalLevelPct;
+        const liters = data.level_liters ?? globalLevelLiters;
+        const motor  = data.motor_state  ?? globalMotorOn;
+        const mode   = data.motor_mode   ?? globalMotorMode;
 
-      // Heartbeat check using clock-drift-corrected server time
-      // heartbeat = Firebase server timestamp (ms since epoch)
-      // adjustedNow = our best estimate of the current server time
-      const hb = data.heartbeat;
-      if (typeof hb === 'number' && hb > 0) {
-        const adjustedNow = Date.now() + globalServerOffset;
-        const ageMs = adjustedNow - hb;
-        if (ageMs >= 0 && ageMs < OFFLINE_TIMEOUT_MS) {
-          // Fresh heartbeat confirmed — ESP is alive
-          globalLastUpdate = Date.now();
-          if (globalIsConnecting) {
-            globalIsConnecting = false;
-            globalSystemOnline = true;
-            broadcastState();
+        globalLevelPct    = pct;
+        globalLevelLiters = liters;
+        globalMotorOn     = motor;
+        globalMotorMode   = mode;
+
+        setLevelPct(pct);
+        setLevelLiters(liters);
+        setMotorOn(motor);
+        setMotorMode(mode);
+
+        // Heartbeat check — absolute server timestamp age
+        const hb = data.heartbeat;
+        if (typeof hb === 'number' && hb > 0) {
+          const adjustedNow = Date.now() + globalServerOffset;
+          const ageMs = adjustedNow - hb;
+          if (ageMs >= 0 && ageMs < OFFLINE_TIMEOUT_MS) {
+            globalLastUpdate = Date.now();
+            if (globalIsConnecting) {
+              globalIsConnecting = false;
+              globalSystemOnline = true;
+              broadcastState();
+            }
           }
         }
-        // If ageMs >= OFFLINE_TIMEOUT_MS: stale heartbeat — don't advance globalLastUpdate
-        // The checker interval will detect this and set offline after OFFLINE_TIMEOUT_MS
+      });
+    };
+
+    // Initial subscription
+    subscribeTankStatus();
+
+    // ── RECOVERY 1: Firebase WebSocket reconnect ─────────────────────
+    // When the browser's WebSocket to Firebase drops and reconnects,
+    // .info/connected fires true. Re-subscribe to get fresh data.
+    const connectedRef = ref(database, '.info/connected');
+    const unsubConnected = onValue(connectedRef, (snap) => {
+      if (snap.val() === true) {
+        subscribeTankStatus();
       }
     });
 
-    // Cleanup only on full page unload (component never truly unmounts in SPA routing)
-    return () => { unsubOffset(); unsubTank(); };
+    // ── RECOVERY 2: Watchdog (catches silently dead listeners) ───────
+    // If onValue hasn't fired in 60 seconds, the listener is dead.
+    // Tear it down and rebuild it. Safe with server timestamps.
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastEventTimeRef.current > 60000) {
+        console.log('[Watchdog] Listener stale — re-subscribing...');
+        subscribeTankStatus();
+        lastEventTimeRef.current = Date.now();
+      }
+    }, 15000);
+
+    // ── RECOVERY 3: Tab visibility (browser throttles background tabs) ─
+    // When user switches back to this tab, re-subscribe immediately
+    // to get the latest data without waiting for the watchdog.
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        subscribeTankStatus();
+        lastEventTimeRef.current = Date.now();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    // Cleanup
+    return () => {
+      unsubOffset();
+      unsubConnected();
+      if (unsubTankRef.current) unsubTankRef.current();
+      clearInterval(watchdog);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, []);
 
   // ── Trend ─────────────────────────────────────────────────────────────────
