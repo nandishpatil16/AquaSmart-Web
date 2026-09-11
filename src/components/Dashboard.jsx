@@ -3,39 +3,54 @@ import { Power, Activity, ShieldAlert, CheckCircle2, TrendingUp, TrendingDown, M
 import { database, ref, onValue, set, isFirebaseConfigured } from '../firebase';
 
 // =============================================================================
-// MODULE-LEVEL GLOBALS — survive ALL page navigations, never reset on re-mount
+// MODULE-LEVEL GLOBALS
 // =============================================================================
-let globalLastUpdate     = 0;       // When we last confirmed a fresh heartbeat
+let globalLastUpdate     = 0;
 let globalSystemOnline   = false;
 let globalIsConnecting   = true;
 let globalCheckerStarted = false;
-let globalServerOffset   = 0;       // Firebase server time - browser time (ms)
+let globalServerOffset   = 0;
 let globalNotifCooldown  = { online: 0, offline: 0 };
 
-// Cached sensor values — prevents 0-flash on navigation
 let globalLevelPct    = 0;
 let globalLevelLiters = 0;
 let globalMotorOn     = false;
 let globalMotorMode   = 'manual';
 
-// Mark offline if no fresh heartbeat for this long
-const OFFLINE_TIMEOUT_MS = 60000; // 60s = 12 missed heartbeats @ 5s each
+const OFFLINE_TIMEOUT_MS = 60000;
 const NOTIF_COOLDOWN_MS  = 60000;
 
-// Registry — push state to all mounted Dashboard instances
 const stateListeners = new Set();
 function broadcastState() {
   stateListeners.forEach(fn => fn({ online: globalSystemOnline, connecting: globalIsConnecting }));
 }
 
-// Single global checker — runs once for the entire browser session
+// Called every time a FRESH heartbeat is confirmed
+function markOnline() {
+  globalLastUpdate   = Date.now();
+  globalIsConnecting = false;
+  if (!globalSystemOnline) {
+    globalSystemOnline = true;
+    broadcastState();   // Always fires when going Offline→Online
+  }
+}
+
 function startGlobalChecker() {
   if (globalCheckerStarted) return;
   globalCheckerStarted = true;
 
-  // 10s grace period on very first open
-  setTimeout(() => { globalIsConnecting = false; broadcastState(); }, 10000);
+  // FIX: Was 10s — too short, raced against Firebase startup and broadcast
+  // "Offline" before the first heartbeat arrived. Now 30s and ONLY fires
+  // if no heartbeat was received at all (genuine no-connection case).
+  setTimeout(() => {
+    if (globalLastUpdate === 0) {
+      globalIsConnecting = false;
+      globalSystemOnline = false;
+      broadcastState();
+    }
+  }, 30000);
 
+  // Runs every 5s after connection is established
   setInterval(() => {
     if (globalIsConnecting) return;
     const isOnline = globalLastUpdate > 0 && (Date.now() - globalLastUpdate) < OFFLINE_TIMEOUT_MS;
@@ -170,27 +185,24 @@ export default function Dashboard() {
         setMotorOn(motor);
         setMotorMode(mode);
 
-        // ── Heartbeat age check ────────────────────────────────────
-        // heartbeat = Firebase server timestamp written by ESP32 every 5s
-        // adjustedNow = browser time corrected for server clock drift
-        // If heartbeat is fresh → ESP is alive → go Online
+        // ── Heartbeat age check ──────────────────────────────────────
+        // hb = Firebase server timestamp (ms). ESP32 writes this every 5s.
+        // adjustedNow = our best estimate of Firebase server time right now.
+        // ageMs = how many ms ago the ESP wrote this heartbeat.
+        //
+        // FIX 1: Allow ageMs down to -5000 (5s negative tolerance).
+        //   This covers the race where globalServerOffset hasn't loaded yet
+        //   and the server clock is slightly ahead of the browser clock.
+        //   A -200ms ageMs means "just written" — definitely Online.
+        //
+        // FIX 2: Use markOnline() which always broadcasts Offline→Online,
+        //   not just when globalIsConnecting=true (old bug).
         const hb = data.heartbeat;
         if (typeof hb === 'number' && hb > 0) {
           const adjustedNow = Date.now() + globalServerOffset;
           const ageMs = adjustedNow - hb;
-
-          if (ageMs >= 0 && ageMs < OFFLINE_TIMEOUT_MS) {
-            // Fresh heartbeat — ESP is alive
-            globalLastUpdate = Date.now();
-
-            // FIX: Always broadcast if state changed, not just during connecting phase
-            // Previously this only ran when globalIsConnecting=true, so after the
-            // 10s startup, going from Offline→Online never triggered broadcastState()
-            if (!globalSystemOnline || globalIsConnecting) {
-              globalIsConnecting = false;
-              globalSystemOnline = true;
-              broadcastState();
-            }
+          if (ageMs > -5000 && ageMs < OFFLINE_TIMEOUT_MS) {
+            markOnline();   // Updates globalLastUpdate, broadcasts if newly online
           }
         }
       });
