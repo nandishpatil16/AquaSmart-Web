@@ -347,39 +347,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ── Alarm Banner — only visible when buzzer is actually ringing ── */}
-      {alarmActive && (
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          background: 'rgba(239,68,68,0.15)', border: '2px solid var(--accent-red)',
-          borderRadius: '12px', padding: '1rem 1.5rem', marginBottom: '1.5rem',
-          animation: 'pulse 1s infinite',
-          flexWrap: 'wrap', gap: '1rem'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <ShieldAlert size={28} color="var(--accent-red)" />
-            <div>
-              <div style={{ fontWeight: '700', fontSize: '1.1rem', color: 'var(--accent-red)' }}>
-                🔔 Alarm Ringing — Tank Full ({levelPct}%)!
-              </div>
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                Buzzer will auto-stop in 1 minute
-              </div>
-            </div>
-          </div>
-          <button
-            onClick={handleSilenceAlarm}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '0.5rem',
-              padding: '0.6rem 1.4rem', borderRadius: '8px', border: 'none',
-              background: 'var(--accent-red)', color: '#fff',
-              fontWeight: '700', fontSize: '1rem', cursor: 'pointer'
-            }}
-          >
-            <BellOff size={18} /> Stop Alarm
-          </button>
-        </div>
-      )}
+      {/* Banner removed; Alarm controls moved into the card below */}
 
       <div className="dashboard-grid">
         <div className="card">
@@ -433,6 +401,50 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
+
+          {/* ── ALARM SYSTEM CONTROL ── */}
+          <div style={{
+            marginTop: '1.5rem',
+            padding: '1rem',
+            borderRadius: '12px',
+            border: alarmActive ? '2px solid var(--accent-red)' : '1px solid var(--border-color)',
+            background: alarmActive ? 'rgba(239,68,68,0.15)' : 'var(--bg-color)',
+            animation: alarmActive ? 'pulse 1s infinite' : 'none',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '1rem',
+            transition: 'all 0.3s ease'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <ShieldAlert size={24} color={alarmActive ? "var(--accent-red)" : "var(--text-muted)"} />
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.05rem', color: alarmActive ? 'var(--accent-red)' : 'var(--text-main)' }}>
+                  Alarm System
+                </h3>
+                <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                  Status: {alarmActive ? <span style={{ color: 'var(--accent-red)', fontWeight: '600' }}>Ringing (Tank Full)</span> : 'Standby'}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleSilenceAlarm}
+              disabled={!alarmActive}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.5rem',
+                padding: '0.6rem 1.2rem', borderRadius: '8px', border: 'none',
+                background: alarmActive ? 'var(--accent-red)' : 'var(--border-color)',
+                color: alarmActive ? '#fff' : 'var(--text-muted)',
+                fontWeight: '700', fontSize: '0.9rem',
+                cursor: alarmActive ? 'pointer' : 'not-allowed',
+                transition: 'all 0.3s ease'
+              }}
+            >
+              <BellOff size={16} /> Stop Alarm
+            </button>
+          </div>
+
         </div>
 
         <div className="card">
