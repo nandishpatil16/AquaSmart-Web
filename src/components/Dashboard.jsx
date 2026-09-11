@@ -11,6 +11,7 @@ let globalIsConnecting   = true;
 let globalCheckerStarted = false;
 let globalServerOffset   = 0;
 let globalNotifCooldown  = { online: 0, offline: 0 };
+let globalLastHeartbeatValue = null; // Used for backwards compatibility with old ESP32 code
 
 let globalLevelPct    = 0;
 let globalLevelLiters = 0;
@@ -185,24 +186,25 @@ export default function Dashboard() {
         setMotorOn(motor);
         setMotorMode(mode);
 
-        // ── Heartbeat age check ──────────────────────────────────────
-        // hb = Firebase server timestamp (ms). ESP32 writes this every 5s.
-        // adjustedNow = our best estimate of Firebase server time right now.
-        // ageMs = how many ms ago the ESP wrote this heartbeat.
-        //
-        // FIX 1: Allow ageMs down to -5000 (5s negative tolerance).
-        //   This covers the race where globalServerOffset hasn't loaded yet
-        //   and the server clock is slightly ahead of the browser clock.
-        //   A -200ms ageMs means "just written" — definitely Online.
-        //
-        // FIX 2: Use markOnline() which always broadcasts Offline→Online,
-        //   not just when globalIsConnecting=true (old bug).
+        // ── Heartbeat checking (Dual Support) ────────────────────────
+        // The NEW ESP32 code writes an absolute server timestamp (> 1 trillion).
+        // The OLD ESP32 code writes uptime millis() (e.g. 120500).
+        // We must support both so the web app works without needing an ESP flash.
         const hb = data.heartbeat;
-        if (typeof hb === 'number' && hb > 0) {
-          const adjustedNow = Date.now() + globalServerOffset;
-          const ageMs = adjustedNow - hb;
-          if (ageMs > -5000 && ageMs < OFFLINE_TIMEOUT_MS) {
-            markOnline();   // Updates globalLastUpdate, broadcasts if newly online
+        if (typeof hb === 'number') {
+          if (hb > 1000000000000) {
+            // NEW FIRMWARE: Absolute timestamp check
+            const adjustedNow = Date.now() + globalServerOffset;
+            const ageMs = adjustedNow - hb;
+            if (ageMs > -5000 && ageMs < OFFLINE_TIMEOUT_MS) {
+              markOnline();
+            }
+          } else {
+            // OLD FIRMWARE: Value change check
+            if (hb !== globalLastHeartbeatValue) {
+              globalLastHeartbeatValue = hb;
+              markOnline();
+            }
           }
         }
       });
