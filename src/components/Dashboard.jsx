@@ -201,7 +201,13 @@ export default function Dashboard() {
             }
           } else {
             // OLD FIRMWARE: Value change check
-            if (hb !== globalLastHeartbeatValue) {
+            if (globalLastHeartbeatValue === null) {
+              // FIRST LOAD: Just memorize it. Do NOT assume it's online!
+              // This prevents the illusion of being online when the user refreshes
+              // and reads a stale value from a dead ESP32.
+              globalLastHeartbeatValue = hb;
+            } else if (hb !== globalLastHeartbeatValue) {
+              // SUBSEQUENT UPDATES: If it changes, the ESP32 is truly alive
               globalLastHeartbeatValue = hb;
               markOnline();
             }
