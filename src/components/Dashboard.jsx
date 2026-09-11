@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Power, Activity, ShieldAlert, CheckCircle2, TrendingUp, TrendingDown, Minus, WifiOff } from 'lucide-react';
+import { Power, Activity, ShieldAlert, CheckCircle2, TrendingUp, TrendingDown, Minus, WifiOff, BellOff } from 'lucide-react';
 import { database, ref, onValue, set, isFirebaseConfigured } from '../firebase';
 
 // =============================================================================
@@ -57,6 +57,7 @@ export default function Dashboard() {
   const [trend,        setTrend]        = useState('Stable');
   const [systemOnline, setSystemOnline] = useState(globalSystemOnline);
   const [isConnecting, setIsConnecting] = useState(globalIsConnecting);
+  const [alarmActive,  setAlarmActive]  = useState(false);
   const [alerts, setAlerts] = useState([
     { id: 1, type: 'success', title: 'System Initialized', message: 'Dashboard ready.', time: new Date().toLocaleTimeString() }
   ]);
@@ -261,6 +262,18 @@ export default function Dashboard() {
     prevMotorRef.current = motorOn;
   }, [motorOn]);
 
+  // ── Alarm state listener ──────────────────────────────────────────────────
+  // Reads alarm_active from Firebase so the button appears/disappears
+  // in real-time on the web app without needing a page refresh.
+  useEffect(() => {
+    if (!isFirebaseConfigured) return;
+    const alarmRef = ref(database, 'tank_status/alarm_active');
+    const unsub = onValue(alarmRef, (snap) => {
+      setAlarmActive(snap.val() === true);
+    });
+    return () => unsub();
+  }, []);
+
   // ── Control handlers ──────────────────────────────────────────────────────
   const handleMotorToggle = (e) => {
     if (motorMode === 'auto') return;
@@ -277,6 +290,14 @@ export default function Dashboard() {
         setMotorOn(false); globalMotorOn = false;
         set(ref(database, 'tank_status/motor_state'), false);
       }
+    }
+  };
+
+  // Write alarm_silence=true → ESP32 reads this every 5s and stops the buzzer
+  const handleSilenceAlarm = () => {
+    if (isFirebaseConfigured) {
+      set(ref(database, 'tank_status/alarm_silence'), true);
+      addAlert('success', 'Alarm Silenced', 'Stop signal sent to ESP32.');
     }
   };
 
@@ -317,6 +338,40 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* ── Alarm Banner — only visible when buzzer is ringing ── */}
+      {alarmActive && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          background: 'rgba(239,68,68,0.15)', border: '2px solid var(--accent-red)',
+          borderRadius: '12px', padding: '1rem 1.5rem', marginBottom: '1.5rem',
+          animation: 'pulse 1s infinite',
+          flexWrap: 'wrap', gap: '1rem'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <ShieldAlert size={28} color="var(--accent-red)" />
+            <div>
+              <div style={{ fontWeight: '700', fontSize: '1.1rem', color: 'var(--accent-red)' }}>
+                🔔 Alarm Ringing — Tank Full!
+              </div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                Buzzer will auto-stop in 1 minute
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={handleSilenceAlarm}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '0.5rem',
+              padding: '0.6rem 1.4rem', borderRadius: '8px', border: 'none',
+              background: 'var(--accent-red)', color: '#fff',
+              fontWeight: '700', fontSize: '1rem', cursor: 'pointer'
+            }}
+          >
+            <BellOff size={18} /> Stop Alarm
+          </button>
+        </div>
+      )}
 
       <div className="dashboard-grid">
         <div className="card">
