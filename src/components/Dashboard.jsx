@@ -108,19 +108,15 @@ export default function Dashboard() {
     return () => stateListeners.delete(listener);
   }, []);
 
-  // ── Firebase listener with self-healing ─────────────────────────────────
+  // ── Firebase listeners ────────────────────────────────────────────────────
   //
-  // WHY RE-SUBSCRIPTION IS SAFE WITH SERVER TIMESTAMPS:
-  //   Re-subscription fires onValue immediately with cached data.
-  //   With the OLD approach (heartbeat value comparison), cached data
-  //   looked "new" because globalLastHeartbeat was null → flicker.
-  //   With SERVER TIMESTAMPS, a stale heartbeat has an old timestamp
-  //   that ALWAYS fails the age check → no flicker, ever.
+  // DESIGN: One stable onValue listener on tank_status.
+  // Firebase SDK automatically resumes delivery after reconnection — no need
+  // to manually re-subscribe on .info/connected (that was CAUSING the bug:
+  // re-subscription fires cached data → old heartbeat → age check fails → offline flash).
   //
-  // THREE INDEPENDENT RECOVERY MECHANISMS:
-  //   1. .info/connected → re-subscribe when WebSocket reconnects
-  //   2. 60s watchdog    → catches silently dead listeners
-  //   3. visibilitychange → recovers when user returns to tab
+  // RECOVERY: 60s watchdog detects truly dead listeners and rebuilds.
+  // visibilitychange recovers from browser tab throttling.
   //
   const unsubTankRef     = useRef(null);
   const lastEventTimeRef = useRef(Date.now());
@@ -138,15 +134,14 @@ export default function Dashboard() {
       return () => clearInterval(interval);
     }
 
-    // ── Server time offset (fixes browser ↔ server clock drift) ──────
+    // Server time offset — corrects browser ↔ Firebase server clock drift
     const offsetRef = ref(database, '.info/serverTimeOffset');
     const unsubOffset = onValue(offsetRef, (snap) => {
       globalServerOffset = snap.val() || 0;
     });
 
-    // ── Tank status listener (with re-subscribe capability) ──────────
+    // ── Tank status — STABLE single listener ─────────────────────────
     const subscribeTankStatus = () => {
-      // Tear down old listener first (safe to call if null)
       if (unsubTankRef.current) {
         unsubTankRef.current();
         unsubTankRef.current = null;
@@ -157,10 +152,9 @@ export default function Dashboard() {
         const data = snapshot.val();
         if (!data) return;
 
-        // Mark that the listener is alive
         lastEventTimeRef.current = Date.now();
 
-        // Cache sensor values (prevents 0-flash on navigation)
+        // Always update cached sensor values
         const pct    = data.level_pct    ?? globalLevelPct;
         const liters = data.level_liters ?? globalLevelLiters;
         const motor  = data.motor_state  ?? globalMotorOn;
@@ -176,14 +170,23 @@ export default function Dashboard() {
         setMotorOn(motor);
         setMotorMode(mode);
 
-        // Heartbeat check — absolute server timestamp age
+        // ── Heartbeat age check ────────────────────────────────────
+        // heartbeat = Firebase server timestamp written by ESP32 every 5s
+        // adjustedNow = browser time corrected for server clock drift
+        // If heartbeat is fresh → ESP is alive → go Online
         const hb = data.heartbeat;
         if (typeof hb === 'number' && hb > 0) {
           const adjustedNow = Date.now() + globalServerOffset;
           const ageMs = adjustedNow - hb;
+
           if (ageMs >= 0 && ageMs < OFFLINE_TIMEOUT_MS) {
+            // Fresh heartbeat — ESP is alive
             globalLastUpdate = Date.now();
-            if (globalIsConnecting) {
+
+            // FIX: Always broadcast if state changed, not just during connecting phase
+            // Previously this only ran when globalIsConnecting=true, so after the
+            // 10s startup, going from Offline→Online never triggered broadcastState()
+            if (!globalSystemOnline || globalIsConnecting) {
               globalIsConnecting = false;
               globalSystemOnline = true;
               broadcastState();
@@ -193,22 +196,12 @@ export default function Dashboard() {
       });
     };
 
-    // Initial subscription
     subscribeTankStatus();
 
-    // ── RECOVERY 1: Firebase WebSocket reconnect ─────────────────────
-    // When the browser's WebSocket to Firebase drops and reconnects,
-    // .info/connected fires true. Re-subscribe to get fresh data.
-    const connectedRef = ref(database, '.info/connected');
-    const unsubConnected = onValue(connectedRef, (snap) => {
-      if (snap.val() === true) {
-        subscribeTankStatus();
-      }
-    });
-
-    // ── RECOVERY 2: Watchdog (catches silently dead listeners) ───────
-    // If onValue hasn't fired in 60 seconds, the listener is dead.
-    // Tear it down and rebuild it. Safe with server timestamps.
+    // ── RECOVERY: Watchdog (detects truly dead listeners) ────────────
+    // If onValue hasn't fired in 60s, rebuild the listener.
+    // Note: .info/connected re-subscription was REMOVED — it caused offline
+    // flickers by firing cached stale data on every WebSocket reconnect.
     const watchdog = setInterval(() => {
       if (Date.now() - lastEventTimeRef.current > 60000) {
         console.log('[Watchdog] Listener stale — re-subscribing...');
@@ -217,9 +210,7 @@ export default function Dashboard() {
       }
     }, 15000);
 
-    // ── RECOVERY 3: Tab visibility (browser throttles background tabs) ─
-    // When user switches back to this tab, re-subscribe immediately
-    // to get the latest data without waiting for the watchdog.
+    // ── RECOVERY: Tab visibility ──────────────────────────────────────
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         subscribeTankStatus();
@@ -228,10 +219,8 @@ export default function Dashboard() {
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
-    // Cleanup
     return () => {
       unsubOffset();
-      unsubConnected();
       if (unsubTankRef.current) unsubTankRef.current();
       clearInterval(watchdog);
       document.removeEventListener('visibilitychange', handleVisibility);
