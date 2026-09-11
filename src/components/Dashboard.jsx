@@ -271,7 +271,8 @@ export default function Dashboard() {
     const alarmRef = ref(database, 'tank_status/alarm_active');
     const unsub = onValue(alarmRef, (snap) => {
       const val = snap.val();
-      setAlarmActive(val === true || val === 1);
+      console.log('[Alarm] Firebase alarm_active value:', val, typeof val);
+      setAlarmActive(val === true || val === 1 || val === 'true');
     });
     return () => unsub();
   }, []);
