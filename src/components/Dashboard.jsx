@@ -225,10 +225,14 @@ export default function Dashboard() {
     }, 15000);
 
     // ── RECOVERY: Tab visibility ──────────────────────────────────────
+    // When the browser tab sleeps and wakes up, the time difference might
+    // be > 60s, triggering an instant false 'Offline'. By bumping globalLastUpdate,
+    // we give Firebase a 60s grace period to fetch fresh data.
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        subscribeTankStatus();
+        globalLastUpdate = Date.now();
         lastEventTimeRef.current = Date.now();
+        subscribeTankStatus();
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
