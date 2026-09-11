@@ -342,8 +342,8 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ── Alarm Banner — only visible when buzzer is ringing ── */}
-      {alarmActive && (
+      {/* ── Alarm Banner — shows when tank is full OR buzzer is ringing ── */}
+      {(alarmActive || levelPct >= 95) && (
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           background: 'rgba(239,68,68,0.15)', border: '2px solid var(--accent-red)',
@@ -355,7 +355,7 @@ export default function Dashboard() {
             <ShieldAlert size={28} color="var(--accent-red)" />
             <div>
               <div style={{ fontWeight: '700', fontSize: '1.1rem', color: 'var(--accent-red)' }}>
-                🔔 Alarm Ringing — Tank Full!
+                🔔 Alarm Ringing — Tank Full ({levelPct}%)!
               </div>
               <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
                 Buzzer will auto-stop in 1 minute
