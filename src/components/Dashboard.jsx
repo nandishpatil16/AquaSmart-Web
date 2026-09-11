@@ -265,11 +265,13 @@ export default function Dashboard() {
   // ── Alarm state listener ──────────────────────────────────────────────────
   // Reads alarm_active from Firebase so the button appears/disappears
   // in real-time on the web app without needing a page refresh.
+  // NOTE: No isFirebaseConfigured guard — alarm must work even in fallback mode.
   useEffect(() => {
-    if (!isFirebaseConfigured) return;
+    if (!database) return;
     const alarmRef = ref(database, 'tank_status/alarm_active');
     const unsub = onValue(alarmRef, (snap) => {
-      setAlarmActive(snap.val() === true);
+      const val = snap.val();
+      setAlarmActive(val === true || val === 1);
     });
     return () => unsub();
   }, []);
