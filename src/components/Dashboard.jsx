@@ -301,8 +301,10 @@ export default function Dashboard() {
 
   // Write alarm_silence=true → ESP32 reads this every 5s and stops the buzzer
   const handleSilenceAlarm = () => {
-    if (isFirebaseConfigured) {
+    if (database) {
       set(ref(database, 'tank_status/alarm_silence'), true);
+      set(ref(database, 'tank_status/alarm_active'), false); // Instantly hide banner
+      setAlarmActive(false);
       addAlert('success', 'Alarm Silenced', 'Stop signal sent to ESP32.');
     }
   };
@@ -345,8 +347,8 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ── Alarm Banner — shows when tank is full OR buzzer is ringing ── */}
-      {(alarmActive || levelPct >= 95) && (
+      {/* ── Alarm Banner — only visible when buzzer is actually ringing ── */}
+      {alarmActive && (
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           background: 'rgba(239,68,68,0.15)', border: '2px solid var(--accent-red)',
