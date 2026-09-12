@@ -7,6 +7,7 @@ export default function SettingsView({ theme, toggleTheme }) {
   const [capacity, setCapacity] = useState(500);
   const [height, setHeight] = useState(110);
   const [lowAlert, setLowAlert] = useState(20);
+  const [highAlert, setHighAlert] = useState(95);
   const [resetMsg, setResetMsg] = useState('');
 
   useEffect(() => {
@@ -18,6 +19,7 @@ export default function SettingsView({ theme, toggleTheme }) {
           if (data.capacity) setCapacity(data.capacity);
           if (data.height) setHeight(data.height);
           if (data.lowAlert) setLowAlert(data.lowAlert);
+          if (data.highAlert) setHighAlert(data.highAlert);
         }
       });
       return () => unsubscribe();
@@ -29,7 +31,8 @@ export default function SettingsView({ theme, toggleTheme }) {
       set(ref(database, 'settings'), {
         capacity: Number(capacity),
         height: Number(height),
-        lowAlert: Number(lowAlert)
+        lowAlert: Number(lowAlert),
+        highAlert: Number(highAlert)
       });
     }
     setSaved(true);
@@ -112,6 +115,16 @@ export default function SettingsView({ theme, toggleTheme }) {
               type="number" 
               value={lowAlert}
               onChange={(e) => setLowAlert(e.target.value)}
+              style={{width: '100%', padding: '0.8rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-color)', color: 'var(--text-main)'}}
+            />
+          </div>
+
+          <div>
+            <label style={{display:'block', marginBottom: '0.5rem', color: 'var(--text-muted)'}}>High Water Alert Threshold (%)</label>
+            <input 
+              type="number" 
+              value={highAlert}
+              onChange={(e) => setHighAlert(e.target.value)}
               style={{width: '100%', padding: '0.8rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-color)', color: 'var(--text-main)'}}
             />
           </div>
