@@ -186,31 +186,26 @@ export default function Dashboard() {
         setMotorOn(motor);
         setMotorMode(mode);
 
-        // ── Heartbeat checking (Dual Support) ────────────────────────
-        // The NEW ESP32 code writes an absolute server timestamp (> 1 trillion).
-        // The OLD ESP32 code writes uptime millis() (e.g. 120500).
-        // We must support both so the web app works without needing an ESP flash.
+        // ── Heartbeat checking (Fix for long-running tabs) ──────────
         const hb = data.heartbeat;
         if (typeof hb === 'number') {
-          if (hb > 1000000000000) {
-            // NEW FIRMWARE: Absolute timestamp check
-            const adjustedNow = Date.now() + globalServerOffset;
-            const ageMs = adjustedNow - hb;
-            if (ageMs > -5000 && ageMs < OFFLINE_TIMEOUT_MS) {
-              markOnline();
+          if (globalLastHeartbeatValue === null) {
+            // FIRST LOAD: Memorize the heartbeat. 
+            // If it's a new timestamp, we can optionally check its age to instantly show online,
+            // otherwise we just wait for the next change.
+            globalLastHeartbeatValue = hb;
+            if (hb > 1000000000000) {
+              const ageMs = (Date.now() + globalServerOffset) - hb;
+              if (ageMs > -5000 && ageMs < OFFLINE_TIMEOUT_MS) {
+                markOnline();
+              }
             }
-          } else {
-            // OLD FIRMWARE: Value change check
-            if (globalLastHeartbeatValue === null) {
-              // FIRST LOAD: Just memorize it. Do NOT assume it's online!
-              // This prevents the illusion of being online when the user refreshes
-              // and reads a stale value from a dead ESP32.
-              globalLastHeartbeatValue = hb;
-            } else if (hb !== globalLastHeartbeatValue) {
-              // SUBSEQUENT UPDATES: If it changes, the ESP32 is truly alive
-              globalLastHeartbeatValue = hb;
-              markOnline();
-            }
+          } else if (hb !== globalLastHeartbeatValue) {
+            // SUBSEQUENT UPDATES: If the heartbeat number changed AT ALL, 
+            // the ESP32 is actively writing to the database. We don't need math!
+            // This prevents the tab from going offline due to browser clock drift over time.
+            globalLastHeartbeatValue = hb;
+            markOnline();
           }
         }
       });
